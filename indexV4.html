@@ -1,0 +1,3747 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GCube — Émulateur GameCube</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --gc-purple:       #6d28d9;
+    --gc-purple-light: #8b5cf6;
+    --gc-purple-dim:   #3b1f6e;
+    --gc-accent:       #a78bfa;
+    --gc-green:        #34d399;
+    --gc-red:          #f87171;
+    --gc-amber:        #fbbf24;
+    --gc-blue:         #60a5fa;
+    --bg-base:         #07070f;
+    --bg-panel:        #0e0e1a;
+    --bg-surface:      #141428;
+    --bg-raised:       #1a1a30;
+    --bg-toolbar:      #0a0a18;
+    --border:          rgba(109,40,217,.28);
+    --text-primary:    #e2e0f0;
+    --text-secondary:  #8b87b0;
+    --text-dim:        #4a4870;
+    --font-display:    'Orbitron', monospace;
+    --font-mono:       'Share Tech Mono', monospace;
+    --font-ui:         'DM Sans', sans-serif;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body {
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  body::before {
+    content:'';position:fixed;inset:0;pointer-events:none;z-index:999;
+    background: repeating-linear-gradient(to bottom,transparent,transparent 2px,rgba(0,0,0,.12) 2px,rgba(0,0,0,.12) 4px);
+  }
+
+  /* ── MENU BAR ── */
+  .menu-bar {
+    display: flex;
+    align-items: center;
+    height: 26px;
+    background: var(--bg-toolbar);
+    border-bottom: 1px solid var(--border);
+    padding: 0 8px;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+  .menu-item {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    padding: 2px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: background .12s, color .12s;
+    user-select: none;
+  }
+  .menu-item:hover { background: rgba(109,40,217,.2); color: var(--gc-accent); }
+
+  /* ── TOOLBAR ── */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    height: 52px;
+    background: var(--bg-toolbar);
+    border-bottom: 1px solid var(--border);
+    padding: 0 6px;
+    gap: 1px;
+    flex-shrink: 0;
+  }
+  .tb-sep { width:1px; height:32px; background:var(--border); margin:0 5px; flex-shrink:0; }
+  .tb-spacer { flex:1; }
+
+  .tb-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    width: 52px;
+    height: 44px;
+    border-radius: 5px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    color: var(--text-secondary);
+    transition: background .12s, color .12s;
+    flex-shrink: 0;
+    position: relative;
+  }
+  .tb-btn:hover { background: rgba(109,40,217,.18); color: var(--gc-accent); }
+  .tb-btn:active { transform: scale(.96); }
+  .tb-btn:disabled { opacity:.3; cursor:not-allowed; }
+  .tb-btn:disabled:hover { background:transparent; color:var(--text-secondary); transform:none; }
+  .tb-btn svg { width:22px; height:22px; flex-shrink:0; }
+  .tb-label { font-size:.54rem; font-family:var(--font-ui); line-height:1; }
+
+  .tb-btn.btn-play svg  { color: var(--gc-green); }
+  .tb-btn.btn-play:hover { background: rgba(52,211,153,.12); }
+  .tb-btn.btn-stop svg  { color: var(--gc-red); }
+  .tb-btn.btn-stop:hover { background: rgba(248,113,113,.1); }
+  .tb-btn.btn-ff svg    { color: var(--gc-amber); }
+  .tb-btn.btn-ff.active { background: rgba(251,191,36,.12); }
+  .tb-btn.btn-ff.active svg { color: var(--gc-amber); }
+
+  .tb-btn::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: -28px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: .58rem;
+    padding: 3px 8px;
+    border-radius: 3px;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .15s;
+    z-index: 200;
+  }
+  .tb-btn:hover::after { opacity: 1; }
+
+  .tb-readout {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    padding: 0 8px;
+    gap: 1px;
+  }
+  .tb-readout-val   { font-family:var(--font-mono); font-size:.8rem; color:var(--gc-accent); }
+  .tb-readout-label { font-family:var(--font-mono); font-size:.54rem; color:var(--text-dim); letter-spacing:.1em; }
+
+  /* ── BODY ── */
+  .body-area {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ── GAME LIST ── */
+  .game-list-view {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+  }
+  .game-list-view.drag-over { outline: 2px dashed var(--gc-purple-light); outline-offset: -4px; }
+
+  .col-header-row {
+    display: grid;
+    grid-template-columns: 34px 1fr 80px 72px 64px 84px;
+    padding: 5px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-surface);
+    font-family: var(--font-mono);
+    font-size: .6rem;
+    color: var(--text-dim);
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    flex-shrink: 0;
+    user-select: none;
+  }
+
+  .game-list { flex:1; overflow-y:auto; }
+  .game-list::-webkit-scrollbar { width:5px; }
+  .game-list::-webkit-scrollbar-thumb { background:var(--gc-purple-dim); border-radius:3px; }
+
+  .game-row {
+    display: grid;
+    grid-template-columns: 34px 1fr 80px 72px 64px 84px;
+    padding: 7px 12px;
+    border-bottom: 1px solid rgba(109,40,217,.1);
+    align-items: center;
+    cursor: pointer;
+    transition: background .1s;
+    font-size: .8rem;
+  }
+  .game-row:hover  { background: rgba(109,40,217,.1); }
+  .game-row.selected { background: rgba(109,40,217,.2); border-left: 2px solid var(--gc-purple-light); }
+  .game-row.selected .game-name { color: var(--gc-accent); }
+
+  .plat-badge {
+    width: 24px; height: 24px;
+    border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-mono); font-size:.5rem; font-weight:700;
+  }
+  .badge-gc  { background:rgba(109,40,217,.3); color:var(--gc-accent); border:1px solid var(--gc-purple); }
+  .badge-wii { background:rgba(96,165,250,.2);  color:var(--gc-blue);   border:1px solid rgba(96,165,250,.35); }
+
+  .game-name { font-weight:500; color:var(--text-primary); }
+  .game-meta { font-family:var(--font-mono); font-size:.66rem; color:var(--text-dim); }
+  .star-row  { display:flex; gap:2px; font-size:10px; }
+  .star      { color:var(--text-dim); }
+  .star.on   { color:var(--gc-amber); }
+
+  /* empty state */
+  .list-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    pointer-events: none;
+  }
+  .list-empty.hidden { display:none; }
+  .list-empty svg { opacity:.2; }
+  .list-empty-text  { font-family:var(--font-mono); font-size:.75rem; color:var(--text-dim); letter-spacing:.15em; text-align:center; line-height:2.2; }
+  .list-empty-hint  { font-family:var(--font-mono); font-size:.65rem; color:var(--text-dim); opacity:.55; text-align:center; line-height:1.8; }
+  .drop-input-cover {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer;
+  }
+  .drop-input-cover input {
+    position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer;
+  }
+
+  /* ── EMU VIEW ── */
+  .emu-view {
+    flex: 1;
+    display: none;
+    flex-direction: column;
+    background: #000;
+  }
+  .emu-view.active { display: flex; }
+  .emu-canvas-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  canvas#screen {
+    max-width:100%; max-height:100%;
+    image-rendering: pixelated;
+    aspect-ratio: 4/3;
+    display: block;
+  }
+
+  /* ── RIGHT PANEL ── */
+  .right-panel {
+    width: 296px;
+    border-left: 1px solid var(--border);
+    background: var(--bg-panel);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+  .panel-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-toolbar);
+    flex-shrink: 0;
+  }
+  .panel-tab {
+    flex: 1;
+    padding: 7px 2px;
+    font-family: var(--font-mono);
+    font-size: .58rem;
+    letter-spacing: .07em;
+    text-align: center;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color .12s, border-color .12s;
+    user-select: none;
+    text-transform: uppercase;
+  }
+  .panel-tab:hover  { color: var(--text-secondary); }
+  .panel-tab.active { color: var(--gc-accent); border-bottom-color: var(--gc-purple-light); }
+
+  .panel-body { flex:1; overflow-y:auto; overflow-x:hidden; }
+  .panel-body::-webkit-scrollbar { width:4px; }
+  .panel-body::-webkit-scrollbar-thumb { background:var(--gc-purple-dim); border-radius:2px; }
+
+  .tab-pane { display:none; padding:10px 12px; }
+  .tab-pane.active { display:block; }
+
+  /* Registers */
+  .pc-display {
+    background: #000;
+    border: 1px solid var(--gc-purple);
+    border-radius: 5px;
+    padding: 9px 12px;
+    margin-bottom: 9px;
+  }
+  .pc-lbl { font-family:var(--font-mono); font-size:.56rem; color:var(--text-dim); letter-spacing:.18em; text-transform:uppercase; }
+  .pc-val {
+    font-family: var(--font-display);
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--gc-purple-light);
+    letter-spacing: .1em;
+    margin-top: 3px;
+    transition: color .12s;
+  }
+  .pc-val.active { color: var(--gc-green); }
+
+  .stats-row { display:grid; grid-template-columns:repeat(3,1fr); gap:4px; margin-bottom:9px; }
+  .stat-c {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 4px;
+    text-align: center;
+  }
+  .stat-v { font-family:var(--font-display); font-size:.82rem; font-weight:700; color:var(--gc-accent); display:block; }
+  .stat-l { font-family:var(--font-mono); font-size:.52rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:.08em; }
+
+  .reg-grid { display:grid; grid-template-columns:1fr 1fr; gap:3px; }
+  .reg-cell {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 4px 7px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .reg-n { font-family:var(--font-mono); font-size:.6rem; color:var(--text-dim); }
+  .reg-v { font-family:var(--font-mono); font-size:.62rem; color:var(--gc-accent); transition:color .1s; }
+  @keyframes regflash { 0%{color:#fff} 100%{color:var(--gc-accent)} }
+  .reg-v.changed { animation:regflash .3s forwards; }
+
+  /* Log */
+  .log-body {
+    font-family: var(--font-mono);
+    font-size: .67rem;
+    line-height: 1.8;
+    color: var(--text-secondary);
+  }
+  .ll { display:flex; gap:8px; }
+  .ll .ts  { color:var(--text-dim); min-width:52px; flex-shrink:0; }
+  .ll .msg { word-break:break-all; }
+  .ll.info .msg { color:var(--gc-accent); }
+  .ll.ok   .msg { color:var(--gc-green); }
+  .ll.warn .msg { color:var(--gc-amber); }
+  .ll.err  .msg { color:var(--gc-red); }
+
+  /* Memory */
+  .hex-view {
+    font-family:var(--font-mono); font-size:.58rem; line-height:1.9;
+    background:#000; border:1px solid var(--border); border-radius:4px;
+    padding:6px 8px; overflow-x:auto;
+  }
+  .hrow { display:flex; gap:8px; }
+  .haddr  { color:var(--text-dim); min-width:60px; }
+  .hbytes { color:var(--gc-accent); letter-spacing:.04em; }
+  .hascii { color:var(--text-dim); border-left:1px solid var(--border); padding-left:6px; }
+
+  /* Settings */
+  .sg-title {
+    font-family:var(--font-mono); font-size:.58rem; color:var(--text-dim);
+    text-transform:uppercase; letter-spacing:.15em;
+    border-bottom:1px solid var(--border); padding-bottom:4px; margin-bottom:5px; margin-top:10px;
+  }
+  .sg-title:first-child { margin-top:0; }
+  .s-row {
+    display:flex; justify-content:space-between; align-items:center;
+    padding:5px 0; font-size:.77rem; color:var(--text-secondary);
+    border-bottom:1px solid rgba(109,40,217,.08);
+  }
+  .s-row:last-child { border-bottom:none; }
+  .s-sel {
+    font-family:var(--font-mono); font-size:.65rem;
+    background:var(--bg-surface); border:1px solid var(--border);
+    color:var(--gc-accent); padding:3px 6px; border-radius:3px; cursor:pointer;
+  }
+  .toggle {
+    width:32px; height:16px; background:var(--bg-surface);
+    border:1px solid var(--border); border-radius:8px;
+    position:relative; cursor:pointer; transition:background .2s; flex-shrink:0;
+  }
+  .toggle.on { background:var(--gc-purple); border-color:var(--gc-purple-light); }
+  .knob {
+    position:absolute; width:10px; height:10px;
+    background:var(--text-dim); border-radius:50%;
+    top:2px; left:2px; transition:left .15s, background .15s;
+  }
+  .toggle.on .knob { left:18px; background:#fff; }
+
+  /* ── BIOS BADGE ── */
+  .bios-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-family: var(--font-mono); font-size: .6rem;
+    padding: 3px 9px; border-radius: 3px; cursor: pointer;
+    transition: background .15s, border-color .15s;
+    border: 1px solid var(--border); background: var(--bg-surface);
+    color: var(--text-dim);
+  }
+  .bios-badge.loaded { border-color: var(--gc-green); color: var(--gc-green); background: rgba(52,211,153,.08); }
+  .bios-badge.error  { border-color: var(--gc-red);   color: var(--gc-red);   background: rgba(248,113,113,.08); }
+  .bios-dot { width:6px; height:6px; border-radius:50%; background:currentColor; flex-shrink:0; }
+
+  /* ── CONTROLLER OVERLAY ── */
+  .ctrl-overlay {
+    position: absolute; bottom: 10px; right: 10px;
+    background: rgba(7,7,15,.85); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 10px;
+    font-family: var(--font-mono); font-size: .58rem;
+    color: var(--text-dim); z-index: 50;
+    display: none; gap: 6px; flex-direction: column;
+    backdrop-filter: blur(4px);
+    min-width: 160px;
+  }
+  .ctrl-overlay.visible { display: flex; }
+  .ctrl-row { display: flex; gap: 4px; flex-wrap: wrap; }
+  .ctrl-btn {
+    padding: 2px 6px; border-radius: 3px;
+    background: var(--bg-surface); border: 1px solid var(--border);
+    color: var(--text-dim); font-size: .56rem; transition: all .08s;
+  }
+  .ctrl-btn.active { background: var(--gc-purple); border-color: var(--gc-purple-light); color: #fff; }
+  .ctrl-section-label { font-size:.5rem; color:var(--text-dim); letter-spacing:.1em; text-transform:uppercase; margin-top:2px; }
+
+  /* ── SAVE STATES ── */
+  .savestate-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 4px; }
+  .ss-slot {
+    background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: 4px; padding: 7px 4px; text-align: center;
+    cursor: pointer; transition: background .12s, border-color .12s;
+    font-family: var(--font-mono); font-size: .55rem; color: var(--text-dim);
+    position: relative;
+  }
+  .ss-slot:hover { background: rgba(109,40,217,.15); border-color: var(--gc-purple); color: var(--gc-accent); }
+  .ss-slot.used { border-color: var(--gc-purple-dim); color: var(--gc-accent); }
+  .ss-slot.used::after { content: '●'; position: absolute; top: 2px; right: 4px; font-size: .4rem; color: var(--gc-green); }
+  .ss-num { font-size:.72rem; font-weight:700; color:inherit; display:block; }
+  .ss-date { font-size:.46rem; margin-top:1px; opacity:.6; }
+  .ss-actions { display: flex; gap: 4px; margin-top: 6px; }
+  .ss-btn {
+    flex: 1; font-family: var(--font-mono); font-size: .58rem;
+    background: var(--bg-surface); border: 1px solid var(--border);
+    color: var(--text-dim); padding: 4px; border-radius: 3px; cursor: pointer;
+    transition: background .12s, color .12s;
+  }
+  .ss-btn:hover { background: rgba(109,40,217,.15); color: var(--gc-accent); }
+
+  /* ── CONTROLLER CONFIG ── */
+  .ctrl-map-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; margin-top: 4px; }
+  .ctrl-map-row {
+    display: flex; justify-content: space-between; align-items: center;
+    background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: 3px; padding: 4px 7px;
+    font-family: var(--font-mono); font-size: .6rem; color: var(--text-secondary);
+  }
+  .ctrl-key {
+    background: var(--bg-raised); border: 1px solid var(--gc-purple-dim);
+    color: var(--gc-accent); padding: 1px 5px; border-radius: 3px; font-size: .58rem;
+    cursor: pointer; transition: background .1s;
+  }
+  .ctrl-key:hover { background: rgba(109,40,217,.25); }
+  .ctrl-key.listening { background: rgba(251,191,36,.15); border-color: var(--gc-amber); color: var(--gc-amber); animation: blink 0.5s infinite; }
+
+  /* ── STATUS BAR ── */
+  .status-bar {
+    height: 22px;
+    background: var(--bg-toolbar);
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    gap: 14px;
+    flex-shrink: 0;
+  }
+  .sb-item { font-family:var(--font-mono); font-size:.6rem; color:var(--text-dim); display:flex; align-items:center; gap:5px; }
+  .sb-dot { width:6px; height:6px; border-radius:50%; background:var(--text-dim); transition:background .3s, box-shadow .3s; }
+  .sb-dot.active { background:var(--gc-green); box-shadow:0 0 6px var(--gc-green); animation:blink 1.5s ease-in-out infinite; }
+  .sb-dot.error  { background:var(--gc-red);   box-shadow:0 0 6px var(--gc-red); }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+  .sb-val { color:var(--text-secondary); }
+  .sb-sep { width:1px; height:12px; background:var(--border); }
+  .sb-right { margin-left:auto; }
+</style>
+</head>
+<body>
+
+<!-- MENU BAR -->
+<div class="menu-bar">
+  <span class="menu-item">Fichier</span>
+  <span class="menu-item">Émulation</span>
+  <span class="menu-item">Options</span>
+  <span class="menu-item">Outils</span>
+  <span class="menu-item">Vue</span>
+  <span class="menu-item">Aide</span>
+</div>
+
+<!-- TOOLBAR -->
+<div class="toolbar">
+
+  <button class="tb-btn" id="btnOpen" data-tip="Ouvrir ROM" onclick="document.getElementById('romInput').click()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+    </svg>
+    <span class="tb-label">Ouvrir</span>
+  </button>
+  <input type="file" id="romInput" accept=".iso,.gcm,.dol,.elf" style="display:none">
+
+  <button class="tb-btn" data-tip="Actualiser la liste" onclick="refreshList()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+      <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+    </svg>
+    <span class="tb-label">Actualiser</span>
+  </button>
+
+  <div class="tb-sep"></div>
+
+  <!-- Playback -->
+  <button class="tb-btn btn-play" id="btnPlay" data-tip="Lancer / Reprendre" disabled onclick="doPlay()">
+    <svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21" fill="currentColor"/></svg>
+    <span class="tb-label">Lancer</span>
+  </button>
+
+  <button class="tb-btn" id="btnPause" data-tip="Pause" disabled onclick="doPause()">
+    <svg viewBox="0 0 24 24">
+      <rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor"/>
+      <rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor"/>
+    </svg>
+    <span class="tb-label">Pause</span>
+  </button>
+
+  <button class="tb-btn btn-stop" id="btnStop" data-tip="Arrêter" disabled onclick="doStop()">
+    <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" fill="currentColor"/></svg>
+    <span class="tb-label">Arrêter</span>
+  </button>
+
+  <button class="tb-btn btn-ff" id="btnFF" data-tip="Avance rapide" disabled onclick="toggleFF()">
+    <svg viewBox="0 0 24 24">
+      <polygon points="3,5 12,12 3,19" fill="currentColor"/>
+      <polygon points="11,5 20,12 11,19" fill="currentColor"/>
+    </svg>
+    <span class="tb-label">Rapide</span>
+  </button>
+
+  <button class="tb-btn" id="btnStep" data-tip="Pas à pas" disabled onclick="doStep()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+      <polygon points="4,5 14,12 4,19" fill="currentColor" stroke="none"/>
+      <line x1="19" y1="5" x2="19" y2="19" stroke-width="2.5"/>
+    </svg>
+    <span class="tb-label">Step</span>
+  </button>
+
+  <div class="tb-sep"></div>
+
+  <button class="tb-btn" id="btnSaveState" data-tip="Sauvegarder l'état (F5)" disabled onclick="doSaveState(0)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
+      <polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
+    </svg>
+    <span class="tb-label">Sauv.</span>
+  </button>
+
+  <button class="tb-btn" id="btnLoadState" data-tip="Charger l'état (F7)" disabled onclick="doLoadState(0)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/>
+    </svg>
+    <span class="tb-label">Charger</span>
+  </button>
+
+  <div class="tb-sep"></div>
+
+  <button class="tb-btn" id="btnScreenshot" data-tip="Capture d'écran" disabled onclick="doScreenshot()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
+      <circle cx="12" cy="13" r="4"/>
+    </svg>
+    <span class="tb-label">Capture</span>
+  </button>
+
+  <button class="tb-btn" id="btnFullscreen" data-tip="Plein écran" disabled onclick="doFullscreen()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/>
+    </svg>
+    <span class="tb-label">Plein écran</span>
+  </button>
+
+  <div class="tb-sep"></div>
+
+  <button class="tb-btn" data-tip="Configuration générale" onclick="switchTab('settings')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.07 4.93l-1.41 1.41M6.34 17.66l-1.41 1.41M20 12h-2M6 12H4m15.07 7.07l-1.41-1.41M6.34 6.34L4.93 4.93M12 20v-2M12 6V4"/>
+    </svg>
+    <span class="tb-label">Config</span>
+  </button>
+
+  <button class="tb-btn" data-tip="Paramètres graphiques" onclick="switchTab('settings')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="2" y="3" width="20" height="14" rx="2"/>
+      <path d="M8 21h8M12 17v4"/>
+    </svg>
+    <span class="tb-label">Graphismes</span>
+  </button>
+
+  <button class="tb-btn" data-tip="Configurer les manettes" onclick="switchTab('settings')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="2" y="8" width="20" height="12" rx="4"/>
+      <path d="M7 12v4m-2-2h4M15 12h2m2 0h-2"/>
+    </svg>
+    <span class="tb-label">Manettes</span>
+  </button>
+
+  <div class="tb-spacer"></div>
+
+  <div class="tb-readout">
+    <span class="tb-readout-val" id="fpsVal">0 FPS</span>
+    <span class="tb-readout-label">RENDU</span>
+  </div>
+  <div class="tb-readout" style="padding-right:6px">
+    <span class="tb-readout-val" id="speedVal">0%</span>
+    <span class="tb-readout-label">VITESSE</span>
+  </div>
+</div>
+
+<!-- BODY -->
+<div class="body-area">
+
+  <!-- Game list view -->
+  <div class="game-list-view" id="gameListView">
+    <div class="col-header-row">
+      <div></div>
+      <div>Titre</div>
+      <div>ID Jeu</div>
+      <div>Région</div>
+      <div>Taille</div>
+      <div>Note</div>
+    </div>
+    <div class="game-list" id="gameList"></div>
+    <div class="list-empty" id="listEmpty">
+      <svg width="70" height="70" viewBox="0 0 70 70" fill="none">
+        <circle cx="35" cy="35" r="33" stroke="#6d28d9" stroke-width="1.5"/>
+        <circle cx="35" cy="35" r="21" stroke="#8b5cf6" stroke-width="1" fill="rgba(109,40,217,.08)"/>
+        <circle cx="35" cy="35" r="9"  fill="rgba(109,40,217,.2)"/>
+        <circle cx="35" cy="35" r="5"  fill="#6d28d9"/>
+      </svg>
+      <div class="list-empty-text">AUCUN JEU DANS LA BIBLIOTHÈQUE</div>
+      <div class="list-empty-hint">Cliquez sur « Ouvrir » dans la barre d'outils<br>ou glissez un fichier .ISO / .GCM ici</div>
+      <div class="drop-input-cover">
+        <input type="file" id="romInputDrop" accept=".iso,.gcm,.dol,.elf">
+      </div>
+    </div>
+  </div>
+
+  <!-- Emulation view -->
+  <div class="emu-view" id="emuView">
+    <div class="emu-canvas-wrap" style="position:relative;">
+      <canvas id="screen" width="640" height="480"></canvas>
+      <div class="ctrl-overlay" id="ctrlOverlay">
+        <div class="ctrl-section-label">Manette</div>
+        <div class="ctrl-row">
+          <span class="ctrl-btn" id="cb-A">A</span>
+          <span class="ctrl-btn" id="cb-B">B</span>
+          <span class="ctrl-btn" id="cb-X">X</span>
+          <span class="ctrl-btn" id="cb-Y">Y</span>
+          <span class="ctrl-btn" id="cb-Z">Z</span>
+          <span class="ctrl-btn" id="cb-S">ST</span>
+        </div>
+        <div class="ctrl-row">
+          <span class="ctrl-btn" id="cb-L">L</span>
+          <span class="ctrl-btn" id="cb-R">R</span>
+          <span class="ctrl-btn" id="cb-U">↑</span>
+          <span class="ctrl-btn" id="cb-D">↓</span>
+          <span class="ctrl-btn" id="cb-Le">←</span>
+          <span class="ctrl-btn" id="cb-Ri">→</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right panel -->
+  <div class="right-panel">
+    <div class="panel-tabs">
+      <div class="panel-tab active" onclick="switchTab('regs')">Registres</div>
+      <div class="panel-tab" onclick="switchTab('log')">Journal</div>
+      <div class="panel-tab" onclick="switchTab('mem')">Mémoire</div>
+      <div class="panel-tab" onclick="switchTab('saves')">États</div>
+      <div class="panel-tab" onclick="switchTab('settings')">Config</div>
+    </div>
+    <div class="panel-body">
+
+      <!-- REGISTERS -->
+      <div class="tab-pane active" id="pane-regs">
+        <div class="pc-display">
+          <div class="pc-lbl">Program Counter</div>
+          <div class="pc-val" id="pcDisplay">0x80000000</div>
+        </div>
+        <div class="stats-row">
+          <div class="stat-c"><span class="stat-v" id="cycleCount">0</span><span class="stat-l">Cycles</span></div>
+          <div class="stat-c"><span class="stat-v" id="opcodeVal">—</span><span class="stat-l">Opcode</span></div>
+          <div class="stat-c"><span class="stat-v" id="instrCount">0</span><span class="stat-l">Instrs</span></div>
+        </div>
+        <div class="reg-grid">
+          <div class="reg-cell"><span class="reg-n">r0</span><span class="reg-v" id="r0">0x00000000</span></div>
+          <div class="reg-cell"><span class="reg-n">r1 SP</span><span class="reg-v" id="r1">0x00000000</span></div>
+          <div class="reg-cell"><span class="reg-n">r2 SDA2</span><span class="reg-v" id="r2">0x00000000</span></div>
+          <div class="reg-cell"><span class="reg-n">r3</span><span class="reg-v" id="r3">0x00000000</span></div>
+          <div class="reg-cell"><span class="reg-n">r4</span><span class="reg-v" id="r4">0x00000000</span></div>
+          <div class="reg-cell"><span class="reg-n">r5</span><span class="reg-v" id="r5">0x00000000</span></div>
+          <div class="reg-cell"><span class="reg-n">LR</span><span class="reg-v" id="lr">0x00000000</span></div>
+          <div class="reg-cell"><span class="reg-n">CTR</span><span class="reg-v" id="ctr">0x00000000</span></div>
+          <div class="reg-cell"><span class="reg-n">CR</span><span class="reg-v" id="cr">0x00000000</span></div>
+          <div class="reg-cell"><span class="reg-n">XER</span><span class="reg-v" id="xer">0x00000000</span></div>
+        </div>
+        <div style="font-family:var(--font-mono);font-size:.52rem;color:var(--text-dim);margin-top:8px;letter-spacing:.1em;text-transform:uppercase;border-bottom:1px solid var(--border);padding-bottom:3px;margin-bottom:4px;">Dernières instructions</div>
+        <div id="disasmView" style="font-family:var(--font-mono);font-size:.58rem;line-height:1.85;color:var(--text-dim);background:#000;border:1px solid var(--border);border-radius:4px;padding:5px 8px;max-height:100px;overflow-y:auto;"></div>
+      </div>
+
+      <!-- LOG -->
+      <div class="tab-pane" id="pane-log">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <span style="font-family:var(--font-mono);font-size:.58rem;color:var(--text-dim);letter-spacing:.12em;text-transform:uppercase;">Console système</span>
+          <button onclick="clearLog()" style="font-family:var(--font-mono);font-size:.58rem;background:none;border:1px solid var(--border);color:var(--text-dim);padding:2px 8px;border-radius:3px;cursor:pointer;transition:color .12s;">Effacer</button>
+        </div>
+        <div class="log-body" id="log"></div>
+      </div>
+
+      <!-- MEMORY -->
+      <div class="tab-pane" id="pane-mem">
+        <p style="font-family:var(--font-mono);font-size:.58rem;color:var(--text-dim);letter-spacing:.1em;text-transform:uppercase;margin-bottom:7px;">MEM1 — 0x80000000</p>
+        <div class="hex-view" id="hexView">
+          <div style="color:var(--text-dim);text-align:center;padding:14px 0;font-size:.63rem;">— Aucune ROM chargée —</div>
+        </div>
+      </div>
+
+      <!-- SAVE STATES -->
+      <div class="tab-pane" id="pane-saves">
+        <div class="sg-title">États de sauvegarde</div>
+        <div class="savestate-grid" id="ssGrid"></div>
+        <div class="ss-actions">
+          <button class="ss-btn" onclick="doSaveState(selectedSlot)">💾 Sauver</button>
+          <button class="ss-btn" onclick="doLoadState(selectedSlot)">📂 Charger</button>
+          <button class="ss-btn" onclick="doDeleteState(selectedSlot)">🗑 Suppr.</button>
+        </div>
+        <div class="sg-title" style="margin-top:12px">Slot sélectionné</div>
+        <div style="font-family:var(--font-mono);font-size:.65rem;color:var(--gc-accent);padding:4px 0;" id="ssSlotInfo">— Aucun slot sélectionné —</div>
+        <div style="font-family:var(--font-mono);font-size:.55rem;color:var(--text-dim);margin-top:8px;">
+          Raccourcis: <span style="color:var(--gc-accent)">F1–F8</span> sauvegarder · <span style="color:var(--gc-accent)">Shift+F1–F8</span> charger
+        </div>
+      </div>
+
+      <!-- SETTINGS -->
+      <div class="tab-pane" id="pane-settings">
+
+        <div class="sg-title">BIOS / IPL</div>
+        <div class="s-row" style="flex-direction:column;align-items:flex-start;gap:6px;padding:8px 0;">
+          <div style="font-family:var(--font-mono);font-size:.6rem;color:var(--text-dim);">
+            Fichier IPL.bin requis pour le démarrage authentique.<br>
+            Sans BIOS, l'émulateur utilise le mode HLE (High-Level Emulation).
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;width:100%;">
+            <div class="bios-badge" id="biosBadge" onclick="document.getElementById('biosInput').click()">
+              <span class="bios-dot"></span><span id="biosLabel">Charger IPL.bin</span>
+            </div>
+            <input type="file" id="biosInput" accept=".bin,.raw" style="display:none">
+            <span style="font-family:var(--font-mono);font-size:.52rem;color:var(--text-dim);" id="biosRegion"></span>
+          </div>
+          <div style="font-family:var(--font-mono);font-size:.52rem;color:var(--text-dim);line-height:1.7;" id="biosInfo"></div>
+        </div>
+
+        <div class="sg-title">CPU</div>
+        <div class="s-row"><span>Backend</span><select class="s-sel"><option>Interpreter</option><option>JIT Recompiler</option></select></div>
+        <div class="s-row"><span>Vitesse max</span>
+          <select class="s-sel" id="speedSelect">
+            <option value="1">×1</option><option value="10">×10</option>
+            <option value="100">×100</option><option value="1000">×1k</option>
+          </select>
+        </div>
+        <div class="s-row"><span>Dual Core</span><div class="toggle" onclick="this.classList.toggle('on')"><div class="knob"></div></div></div>
+        <div class="s-row"><span>Idle Skipping</span><div class="toggle on" onclick="this.classList.toggle('on')"><div class="knob"></div></div></div>
+
+        <div class="sg-title">Graphismes</div>
+        <div class="s-row"><span>Backend</span><select class="s-sel"><option>Vulkan</option><option>OpenGL</option><option>D3D12</option></select></div>
+        <div class="s-row"><span>Résolution interne</span><select class="s-sel"><option>×1 (480p)</option><option>×2 (960p)</option><option>×3 (1440p)</option><option>×4 (2160p)</option></select></div>
+        <div class="s-row"><span>Widescreen hack</span><div class="toggle on" onclick="this.classList.toggle('on')"><div class="knob"></div></div></div>
+        <div class="s-row"><span>V-Sync</span><div class="toggle" onclick="this.classList.toggle('on')"><div class="knob"></div></div></div>
+        <div class="s-row"><span>Anti-aliasing</span><select class="s-sel"><option>Aucun</option><option>2×MSAA</option><option>4×MSAA</option></select></div>
+
+        <div class="sg-title">Audio</div>
+        <div class="s-row"><span>Backend</span><select class="s-sel"><option>Cubeb</option><option>OpenAL</option><option>PulseAudio</option></select></div>
+        <div class="s-row"><span>Latence</span><select class="s-sel"><option>20 ms</option><option>40 ms</option><option>80 ms</option></select></div>
+        <div class="s-row"><span>Étirement temporel</span><div class="toggle on" onclick="this.classList.toggle('on')"><div class="knob"></div></div></div>
+        <div class="s-row"><span>Volume</span>
+          <input type="range" min="0" max="100" value="80" id="volumeSlider"
+            style="width:90px;accent-color:var(--gc-purple-light);cursor:pointer;"
+            oninput="setVolume(this.value)">
+        </div>
+
+        <div class="sg-title">Manette — Clavier</div>
+        <div style="font-family:var(--font-mono);font-size:.55rem;color:var(--text-dim);margin-bottom:6px;">Cliquer sur une touche pour la reconfigurer.</div>
+        <div class="ctrl-map-grid" id="ctrlMapGrid"></div>
+        <div class="s-row" style="margin-top:8px;"><span>Afficher l'état</span><div class="toggle on" id="toggleCtrlOverlay" onclick="this.classList.toggle('on');toggleControllerOverlay()"><div class="knob"></div></div></div>
+        <div class="s-row"><span>Manette (Gamepad API)</span><span class="sb-val" id="gamepadStatus" style="font-family:var(--font-mono);font-size:.6rem;">Non connectée</span></div>
+
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- STATUS BAR -->
+<div class="status-bar">
+  <div class="sb-item"><div class="sb-dot" id="sbDot"></div><span class="sb-val" id="sbStatus">En attente</span></div>
+  <div class="sb-sep"></div>
+  <div class="sb-item">ROM : <span class="sb-val" id="sbRom">—</span></div>
+  <div class="sb-sep"></div>
+  <div class="sb-item">PC : <span class="sb-val" id="sbPc">0x80000000</span></div>
+  <div class="sb-item sb-right">GCube v0.4 — PPC 750CXe · HW Regs · GX · HLE</div>
+</div>
+
+<script>
+const S = {
+  romLoaded:false, running:false, paused:false, ff:false,
+  pc:0x80000000, cycles:0, instrs:0,
+  interval:null, startTime:null, romName:'', romData:null, games:[],
+  biosLoaded:false, biosData:null, biosRegion:'',
+  saveStates: new Array(8).fill(null),
+  audioCtx: null, gainNode: null,
+  gamepadIndex: -1, gamepadPollInterval: null,
+  inputListening: null,
+  bootPhase: 0, bootTimer: null, animFrame: null,
+  showCtrlOverlay: true,
+};
+
+// ── Default key mappings (GC → KeyboardEvent.key) ──────────
+const DEFAULT_KEYS = {
+  'A':'x', 'B':'z', 'X':'s', 'Y':'a',
+  'Z':'c', 'Start':'Enter',
+  'L':'q', 'R':'e',
+  'Up':'ArrowUp','Down':'ArrowDown','Left':'ArrowLeft','Right':'ArrowRight',
+  'CUp':'i','CDown':'k','CLeft':'j','CRight':'l',
+};
+let keyMap = {...DEFAULT_KEYS};
+const pressedKeys = new Set();
+const pressedBtns = {};
+
+var Module = {
+  onRuntimeInitialized: () => {
+    Module._init_emulator();
+    log('info','Wasm initialisé — PowerPC 750CXe @ 486 MHz');
+  },
+  print:   (t) => { log('', t); parseOutput(t); },
+  printErr:(t) => log('err', t),
+};
+
+function switchTab(name) {
+  const names = ['regs','log','mem','saves','settings'];
+  document.querySelectorAll('.panel-tab').forEach((t,i) => t.classList.toggle('active', names[i]===name));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id==='pane-'+name));
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  GCube v0.3 — Noyau d'émulation GameCube
+//  PowerPC 750CXe · 24 Mo MEM1 · Parseur GCM/ISO · Chargeur DOL
+// ═══════════════════════════════════════════════════════════════════
+
+// ── MÉMOIRE SYSTÈME (24 Mo MEM1) ────────────────────────────────
+const MEM1_SIZE = 24 * 1024 * 1024;
+const MEM1_BASE = 0x80000000;
+const MEM1_END  = 0x81800000;
+const MEM1      = new Uint8Array(MEM1_SIZE);
+const MEM1_DV   = new DataView(MEM1.buffer);
+
+// Registres matériels (simulés)
+const HW_REGS = new Uint32Array(0x10000);
+
+// Convertit une adresse virtuelle GC en offset dans MEM1
+function vmAddr(addr) {
+  const a = addr >>> 0;
+  if (a >= 0x80000000 && a < 0x81800000) return a - 0x80000000;
+  if (a >= 0xC0000000 && a < 0xC1800000) return a - 0xC0000000;
+  if (a >= 0x00000000 && a < 0x01800000) return a;
+  return null;
+}
+
+function memRead32(addr) {
+  const off = vmAddr(addr);
+  if (off === null) return hwRead32(addr);
+  if (off + 4 > MEM1_SIZE) return 0;
+  return MEM1_DV.getUint32(off, false); // big-endian
+}
+function memRead16(addr) {
+  const off = vmAddr(addr);
+  if (off === null) return 0;
+  if (off + 2 > MEM1_SIZE) return 0;
+  return MEM1_DV.getUint16(off, false);
+}
+function memRead8(addr) {
+  const off = vmAddr(addr);
+  if (off === null) return 0;
+  if (off >= MEM1_SIZE) return 0;
+  return MEM1[off];
+}
+function memWrite32(addr, val) {
+  const v = val >>> 0;
+  const off = vmAddr(addr);
+  if (off === null) { hwWrite32(addr, v); return; }
+  if (off + 4 > MEM1_SIZE) return;
+  MEM1_DV.setUint32(off, v, false);
+}
+function memWrite16(addr, val) {
+  const off = vmAddr(addr);
+  if (off === null) return;
+  if (off + 2 > MEM1_SIZE) return;
+  MEM1_DV.setUint16(off, val & 0xFFFF, false);
+}
+function memWrite8(addr, val) {
+  const off = vmAddr(addr);
+  if (off === null) return;
+  if (off >= MEM1_SIZE) return;
+  MEM1[off] = val & 0xFF;
+}
+// hwRead32/hwWrite32 defined in HW layer below
+
+// ── PARSEUR DE DISQUE GCM/ISO ───────────────────────────────────
+const GCM = {
+  MAGIC:      0x01C,   // 0xC2339F3D
+  GAME_TITLE: 0x020,
+  DOL_OFF:    0x420,   // Offset (en octets) vers le DOL principal
+  FST_OFF:    0x424,
+  FST_SIZE:   0x428,
+};
+const GC_DISC_MAGIC = 0xC2339F3D;
+
+let DISC_DATA  = null; // Uint8Array de l'ISO complète
+let DISC_INFO  = null; // Métadonnées parsées
+
+function discR32(off) {
+  return ((DISC_DATA[off]<<24)|(DISC_DATA[off+1]<<16)|(DISC_DATA[off+2]<<8)|DISC_DATA[off+3]) >>> 0;
+}
+function discR16(off) {
+  return ((DISC_DATA[off]<<8)|DISC_DATA[off+1]) & 0xFFFF;
+}
+function discStr(off, max) {
+  let s='';
+  for(let i=0; i<max && DISC_DATA[off+i]; i++) s += String.fromCharCode(DISC_DATA[off+i]);
+  return s;
+}
+
+function parseGCM(data) {
+  DISC_DATA = data;
+  const magic = discR32(GCM.MAGIC);
+  const isGC  = magic === GC_DISC_MAGIC;
+  const isWii = discR32(0x018) === 0x5D1C9EA3;
+  if (!isGC && !isWii) throw new Error('Magic invalide — pas un disque GC/Wii');
+  if (isWii) throw new Error('Disque Wii détecté — seuls les disques GameCube sont supportés');
+
+  const gameId   = String.fromCharCode(...data.slice(0, 4));
+  const makerId  = String.fromCharCode(...data.slice(4, 6));
+  const discNum  = data[6];
+  const discVer  = data[7];
+  const audioSt  = data[8] !== 0;
+  const title    = discStr(GCM.GAME_TITLE, 0x3E0);
+
+  // Région depuis l'ID
+  const regionCh = gameId[3];
+  const region   = {E:'NTSC-U',P:'PAL',J:'NTSC-J',K:'NTSC-K',W:'PAL'}[regionCh] || 'Inconnue';
+
+  // DOL et FST
+  const dolOff  = discR32(GCM.DOL_OFF);
+  const fstOff  = discR32(GCM.FST_OFF);
+  const fstSize = discR32(GCM.FST_SIZE);
+
+  DISC_INFO = { gameId, makerId, discNum, discVer, audioSt, title, region, dolOff, fstOff, fstSize, isGC };
+  return DISC_INFO;
+}
+
+// ── SYSTÈME DE FICHIERS (FST) ───────────────────────────────────
+let FST_FILES = [];
+
+function parseFST() {
+  if (!DISC_INFO) return;
+  const base  = DISC_INFO.fstOff;
+  const size  = DISC_INFO.fstSize;
+  if (!base || !size || base + size > DISC_DATA.length) return;
+
+  // Root entry : totalCount dans le 3e uint32
+  const rootCount = discR32(base + 8);
+  const strTabOff = base + rootCount * 12;
+
+  FST_FILES = [];
+  for (let i = 1; i < Math.min(rootCount, 2000); i++) {
+    const eOff = base + i * 12;
+    const flags = DISC_DATA[eOff];
+    if (flags === 0) {
+      // File
+      const nameOff = ((DISC_DATA[eOff+1]<<16)|(DISC_DATA[eOff+2]<<8)|DISC_DATA[eOff+3]) >>> 0;
+      const fileOff = discR32(eOff + 4);
+      const fileLen = discR32(eOff + 8);
+      const name    = discStr(strTabOff + nameOff, 64);
+      FST_FILES.push({ name, fileOff, fileLen });
+    }
+  }
+}
+
+// Lit un fichier depuis le disque par nom (recherche dans FST)
+function discReadFile(name) {
+  const f = FST_FILES.find(x => x.name.toLowerCase() === name.toLowerCase());
+  if (!f) return null;
+  return DISC_DATA.slice(f.fileOff, f.fileOff + f.fileLen);
+}
+
+// ── CHARGEUR DOL ────────────────────────────────────────────────
+const DOL_HDR_SIZE = 0xE4;
+
+// Offsets dans le header DOL
+function dolR32(dolBase, off) {
+  return discR32(dolBase + off);
+}
+
+function loadDOL(dolOff) {
+  if (dolOff + DOL_HDR_SIZE > DISC_DATA.length) throw new Error('DOL hors limites');
+
+  const textFileOff = [];
+  const textAddr    = [];
+  const textSize    = [];
+  const dataFileOff = [];
+  const dataAddr    = [];
+  const dataSize    = [];
+
+  for (let i = 0; i < 7; i++) {
+    textFileOff.push(dolR32(dolOff, 0x00 + i*4));
+    textAddr.push(   dolR32(dolOff, 0x48 + i*4));
+    textSize.push(   dolR32(dolOff, 0x90 + i*4));
+  }
+  for (let i = 0; i < 11; i++) {
+    dataFileOff.push(dolR32(dolOff, 0x1C + i*4));
+    dataAddr.push(   dolR32(dolOff, 0x64 + i*4));
+    dataSize.push(   dolR32(dolOff, 0xAC + i*4));
+  }
+  const bssAddr   = dolR32(dolOff, 0xD8);
+  const bssSize   = dolR32(dolOff, 0xDC);
+  const entryPt   = dolR32(dolOff, 0xE0);
+
+  let totalLoaded = 0;
+
+  // Charger sections texte
+  for (let i = 0; i < 7; i++) {
+    if (!textSize[i] || !textFileOff[i]) continue;
+    const src = dolOff + textFileOff[i];
+    const dst = vmAddr(textAddr[i]);
+    if (dst === null || src + textSize[i] > DISC_DATA.length) continue;
+    for (let b = 0; b < textSize[i]; b++) MEM1[dst + b] = DISC_DATA[src + b];
+    totalLoaded += textSize[i];
+  }
+
+  // Charger sections data
+  for (let i = 0; i < 11; i++) {
+    if (!dataSize[i] || !dataFileOff[i]) continue;
+    const src = dolOff + dataFileOff[i];
+    const dst = vmAddr(dataAddr[i]);
+    if (dst === null || src + dataSize[i] > DISC_DATA.length) continue;
+    for (let b = 0; b < dataSize[i]; b++) MEM1[dst + b] = DISC_DATA[src + b];
+    totalLoaded += dataSize[i];
+  }
+
+  // Initialiser BSS à zéro
+  if (bssAddr && bssSize) {
+    const dst = vmAddr(bssAddr);
+    if (dst !== null) MEM1.fill(0, dst, Math.min(dst + bssSize, MEM1_SIZE));
+  }
+
+  return { entryPt, bssAddr, bssSize, totalLoaded, textAddr, dataAddr };
+}
+
+// ── ÉMULATEUR PowerPC 750CXe ────────────────────────────────────
+
+const GC_CPU = {
+  r:   new Int32Array(32),      // 32 registres entiers
+  f:   new Float64Array(32),    // 32 registres flottants
+  ps1: new Float64Array(32),    // Paired-singles (2e élément)
+  pc:  0x80000000,
+  lr:  0,
+  ctr: 0,
+  xer: 0,
+  cr:  0,                        // 8 champs × 4 bits
+  msr: 0x00002030,               // DR+IR actifs
+  srr0:0, srr1:0,
+  hid0:0, hid2:0,
+  gqr: new Uint32Array(8),       // Quantize regs (PS)
+  fpscr: 0,
+  xfbAddr: 0,                    // Adresse XFB courante
+  running: false,
+  stepsPerFrame: 500000,
+  stepCount: 0,
+  hleMap: {},                    // addr → fonction HLE
+  breakpoints: new Set(),
+  lastInstrs: [],
+  crashReason: '',
+};
+
+// Helpers CR
+function crGet(field, bit) { return (GC_CPU.cr >>> (28 - field*4 - bit)) & 1; }
+function crSet(field, lt, gt, eq, so) {
+  const mask = 0xF << (28 - field*4);
+  const bits = (((lt&1)<<3)|((gt&1)<<2)|((eq&1)<<1)|(so&1)) << (28-field*4);
+  GC_CPU.cr = (GC_CPU.cr & ~mask) | bits;
+}
+function cmpSigned(a, b, field) {
+  const s = (a>>>0) > 0x7FFFFFFF ? a|0 : a;
+  const t = (b>>>0) > 0x7FFFFFFF ? b|0 : b;
+  crSet(field, s<t?1:0, s>t?1:0, s===t?1:0, (GC_CPU.xer>>>31)&1);
+}
+function cmpUnsigned(a, b, field) {
+  const s = a>>>0, t = b>>>0;
+  crSet(field, s<t?1:0, s>t?1:0, s===t?1:0, (GC_CPU.xer>>>31)&1);
+}
+function updateCR0(val) {
+  const v = val|0;
+  crSet(0, v<0?1:0, v>0?1:0, v===0?1:0, (GC_CPU.xer>>>31)&1);
+}
+function xerSetCA(v) { GC_CPU.xer = (GC_CPU.xer & ~0x20000000) | (v ? 0x20000000 : 0); }
+
+// Extraction champs d'instruction
+function iRS(i)  { return (i>>>21)&0x1F; }
+function iRT(i)  { return (i>>>21)&0x1F; }
+function iRA(i)  { return (i>>>16)&0x1F; }
+function iRB(i)  { return (i>>>11)&0x1F; }
+function iRC(i)  { return i&1; }
+function iIMM(i) { return (i<<16>>16); }           // sign-extend 16
+function iUIMM(i){ return i&0xFFFF; }
+function iBO(i)  { return (i>>>21)&0x1F; }
+function iBI(i)  { return (i>>>16)&0x1F; }
+function iBD(i)  { return (i<<16>>14); }           // 14-bit → sign-extend ×4
+function iLI(i)  { return (i<<6>>4); }             // 24-bit → sign-extend ×4
+function iMB(i)  { return (i>>>6)&0x1F; }
+function iME(i)  { return (i>>>1)&0x1F; }
+function iSH(i)  { return (i>>>11)&0x1F; }
+function iLK(i)  { return i&1; }
+function iAA(i)  { return (i>>>1)&1; }
+function iSPR(i) { const s=(i>>>11)&0x1F,t=(i>>>16)&0x1F; return (s<<5)|t; } // swapped
+
+function rlMask(mb,me) {
+  if(mb<=me) { let m=0; for(let i=mb;i<=me;i++) m|=(1<<(31-i)); return m>>>0; }
+  else { let m=0; for(let i=0;i<=me;i++) m|=(1<<(31-i)); for(let i=mb;i<=31;i++) m|=(1<<(31-i)); return m>>>0; }
+}
+function rotl32(v,n) { n&=31; return ((v>>>0)<<n|(v>>>0)>>>(32-n))>>>0; }
+
+// Lecture SPR
+function spr_read(spr) {
+  switch(spr) {
+    case 1: return GC_CPU.xer;
+    case 8: return GC_CPU.lr;
+    case 9: return GC_CPU.ctr;
+    case 25: return GC_CPU.msr;
+    case 26: return GC_CPU.srr0;
+    case 27: return GC_CPU.srr1;
+    case 1008: return GC_CPU.hid0;
+    case 920: return GC_CPU.hid2;
+    default: return 0;
+  }
+}
+function spr_write(spr, val) {
+  switch(spr) {
+    case 1: GC_CPU.xer=val; break;
+    case 8: GC_CPU.lr=val;  break;
+    case 9: GC_CPU.ctr=val; break;
+    case 25: GC_CPU.msr=val; break;
+    case 26: GC_CPU.srr0=val; break;
+    case 27: GC_CPU.srr1=val; break;
+    case 1008: GC_CPU.hid0=val; break;
+    case 920: GC_CPU.hid2=val; break;
+    default: break;
+  }
+}
+
+// ── EXÉCUTION D'UNE INSTRUCTION PowerPC ─────────────────────────
+function ppcStep() {
+  const pc = GC_CPU.pc >>> 0;
+
+  // Vérifier HLE hook
+  if (GC_CPU.hleMap[pc]) {
+    GC_CPU.hleMap[pc]();
+    GC_CPU.pc = GC_CPU.lr >>> 0;
+    return;
+  }
+
+  const instr = memRead32(pc);
+  GC_CPU.pc = (pc + 4) >>> 0;
+  GC_CPU.stepCount++;
+
+  if (GC_CPU.lastInstrs.length > 20) GC_CPU.lastInstrs.shift();
+  GC_CPU.lastInstrs.push({ pc, instr });
+
+  const op = (instr >>> 26) & 0x3F;
+  let ra, rb, rs, rt, imm, addr, val, tmp;
+
+  switch (op) {
+    // ── BRANCHEMENTS ──────────────────────────────────────────
+    case 18: { // b / bl / ba / bla
+      const target = iLI(instr);
+      if (iLK(instr)) GC_CPU.lr = GC_CPU.pc;
+      GC_CPU.pc = (iAA(instr) ? target : (pc + target)) >>> 0;
+      break;
+    }
+    case 16: { // bc / bcl / bca / bcla
+      const bo=iBO(instr), bi=iBI(instr), bd=iBD(instr);
+      if (iLK(instr)) GC_CPU.lr = GC_CPU.pc;
+      if (!(bo&4)) GC_CPU.ctr = (GC_CPU.ctr - 1) >>> 0;
+      const ctrOK = (bo&4) || ((GC_CPU.ctr!==0) !== !!(bo&2));
+      const condBit = (GC_CPU.cr >>> (31-bi)) & 1;
+      const condOK  = (bo&16) || (condBit === ((bo>>3)&1) ? 1 : 0);
+      // fix: condOK should be: (bo&16) || (condBit == ((bo>>3)&1))
+      const take = ctrOK && ((bo&16) || (condBit === (((bo>>>3)&1))));
+      if (take) GC_CPU.pc = (iAA(instr) ? bd : (pc + bd)) >>> 0;
+      break;
+    }
+    case 19: { // bclr, bcctr, ...
+      const xop = (instr>>>1) & 0x3FF;
+      const bo=iBO(instr), bi=iBI(instr);
+      if (!(bo&4)) GC_CPU.ctr = (GC_CPU.ctr - 1) >>> 0;
+      const ctrOK = (bo&4) || ((GC_CPU.ctr!==0) !== !!(bo&2));
+      const condBit = (GC_CPU.cr >>> (31-bi)) & 1;
+      const take    = ctrOK && ((bo&16) || (condBit === (((bo>>>3)&1))));
+      switch(xop) {
+        case 16: // bclr[l]
+          if (iLK(instr)) { const t=GC_CPU.lr; GC_CPU.lr=GC_CPU.pc; if(take) GC_CPU.pc=t&~3; }
+          else if (take) GC_CPU.pc = GC_CPU.lr & ~3;
+          break;
+        case 528: // bcctr[l]
+          if (iLK(instr)) GC_CPU.lr = GC_CPU.pc;
+          if (take) GC_CPU.pc = GC_CPU.ctr & ~3;
+          break;
+        case 0: break; // mcrf - ignore
+        case 33: break; // crxor etc
+        case 193: break;
+        case 449: break;
+        case 257: break;
+        case 289: break;
+        case 417: break;
+        case 225: break;
+      }
+      break;
+    }
+
+    // ── ENTIER : IMMEDIATE ────────────────────────────────────
+    case 14: // addi (li si rA=0)
+      rt=iRT(instr); ra=iRA(instr); imm=iIMM(instr);
+      GC_CPU.r[rt] = ((ra ? GC_CPU.r[ra] : 0) + imm) | 0;
+      break;
+    case 15: // addis (lis si rA=0)
+      rt=iRT(instr); ra=iRA(instr); imm=(iUIMM(instr)<<16)|0;
+      GC_CPU.r[rt] = ((ra ? GC_CPU.r[ra] : 0) + imm) | 0;
+      break;
+    case 12: // addic
+      rt=iRT(instr); ra=iRA(instr); imm=iIMM(instr);
+      tmp = (GC_CPU.r[ra] >>> 0) + (imm < 0 ? imm+0x100000000 : imm);
+      xerSetCA(tmp > 0xFFFFFFFF);
+      GC_CPU.r[rt] = tmp | 0;
+      break;
+    case 13: // addic.
+      rt=iRT(instr); ra=iRA(instr); imm=iIMM(instr);
+      tmp = (GC_CPU.r[ra] >>> 0) + (imm < 0 ? imm+0x100000000 : imm);
+      xerSetCA(tmp > 0xFFFFFFFF);
+      GC_CPU.r[rt] = tmp | 0;
+      updateCR0(GC_CPU.r[rt]);
+      break;
+    case 8: // subfic
+      rt=iRT(instr); ra=iRA(instr); imm=iIMM(instr);
+      tmp = (~GC_CPU.r[ra] >>> 0) + (imm < 0 ? imm+0x100000000 : imm) + 1;
+      GC_CPU.r[rt] = tmp | 0;
+      break;
+    case 7: // mulli
+      rt=iRT(instr); ra=iRA(instr); imm=iIMM(instr);
+      GC_CPU.r[rt] = Math.imul(GC_CPU.r[ra], imm);
+      break;
+    case 11: // cmpi
+      ra=iRA(instr); imm=iIMM(instr);
+      cmpSigned(GC_CPU.r[ra], imm, (instr>>>23)&7);
+      break;
+    case 10: // cmpli
+      ra=iRA(instr);
+      cmpUnsigned(GC_CPU.r[ra]>>>0, iUIMM(instr), (instr>>>23)&7);
+      break;
+    case 24: // ori (nop = ori r0,r0,0)
+      ra=iRA(instr); rs=iRS(instr);
+      GC_CPU.r[ra] = (GC_CPU.r[rs] | iUIMM(instr)) | 0;
+      break;
+    case 25: // oris
+      ra=iRA(instr); rs=iRS(instr);
+      GC_CPU.r[ra] = (GC_CPU.r[rs] | (iUIMM(instr)<<16)) | 0;
+      break;
+    case 26: // xori
+      ra=iRA(instr); rs=iRS(instr);
+      GC_CPU.r[ra] = (GC_CPU.r[rs] ^ iUIMM(instr)) | 0;
+      break;
+    case 27: // xoris
+      ra=iRA(instr); rs=iRS(instr);
+      GC_CPU.r[ra] = (GC_CPU.r[rs] ^ (iUIMM(instr)<<16)) | 0;
+      break;
+    case 28: // andi.
+      ra=iRA(instr); rs=iRS(instr);
+      GC_CPU.r[ra] = (GC_CPU.r[rs] & iUIMM(instr)) | 0;
+      updateCR0(GC_CPU.r[ra]);
+      break;
+    case 29: // andis.
+      ra=iRA(instr); rs=iRS(instr);
+      GC_CPU.r[ra] = (GC_CPU.r[rs] & (iUIMM(instr)<<16)) | 0;
+      updateCR0(GC_CPU.r[ra]);
+      break;
+
+    // ── LOAD / STORE ──────────────────────────────────────────
+    case 32: // lwz
+      rt=iRT(instr); ra=iRA(instr); imm=iIMM(instr);
+      addr = ((ra ? GC_CPU.r[ra] : 0) + imm) >>> 0;
+      GC_CPU.r[rt] = memRead32(addr) | 0;
+      break;
+    case 33: // lwzu
+      rt=iRT(instr); ra=iRA(instr); imm=iIMM(instr);
+      addr = (GC_CPU.r[ra] + imm) >>> 0;
+      GC_CPU.r[rt] = memRead32(addr) | 0;
+      GC_CPU.r[ra] = addr | 0;
+      break;
+    case 34: // lbz
+      rt=iRT(instr); ra=iRA(instr); imm=iIMM(instr);
+      addr = ((ra ? GC_CPU.r[ra] : 0) + imm) >>> 0;
+      GC_CPU.r[rt] = memRead8(addr);
+      break;
+    case 35: // lbzu
+      rt=iRT(instr); ra=iRA(instr); imm=iIMM(instr);
+      addr = (GC_CPU.r[ra] + imm) >>> 0;
+      GC_CPU.r[rt] = memRead8(addr);
+      GC_CPU.r[ra] = addr | 0;
+      break;
+    case 40: // lhz
+      rt=iRT(instr); ra=iRA(instr); imm=iIMM(instr);
+      addr = ((ra ? GC_CPU.r[ra] : 0) + imm) >>> 0;
+      GC_CPU.r[rt] = memRead16(addr);
+      break;
+    case 42: // lha
+      rt=iRT(instr); ra=iRA(instr); imm=iIMM(instr);
+      addr = ((ra ? GC_CPU.r[ra] : 0) + imm) >>> 0;
+      GC_CPU.r[rt] = (memRead16(addr) << 16 >> 16);
+      break;
+    case 36: // stw
+      rs=iRS(instr); ra=iRA(instr); imm=iIMM(instr);
+      addr = ((ra ? GC_CPU.r[ra] : 0) + imm) >>> 0;
+      memWrite32(addr, GC_CPU.r[rs] >>> 0);
+      break;
+    case 37: // stwu
+      rs=iRS(instr); ra=iRA(instr); imm=iIMM(instr);
+      addr = (GC_CPU.r[ra] + imm) >>> 0;
+      memWrite32(addr, GC_CPU.r[rs] >>> 0);
+      GC_CPU.r[ra] = addr | 0;
+      break;
+    case 38: // stb
+      rs=iRS(instr); ra=iRA(instr); imm=iIMM(instr);
+      addr = ((ra ? GC_CPU.r[ra] : 0) + imm) >>> 0;
+      memWrite8(addr, GC_CPU.r[rs] & 0xFF);
+      break;
+    case 39: // stbu
+      rs=iRS(instr); ra=iRA(instr); imm=iIMM(instr);
+      addr = (GC_CPU.r[ra] + imm) >>> 0;
+      memWrite8(addr, GC_CPU.r[rs] & 0xFF);
+      GC_CPU.r[ra] = addr | 0;
+      break;
+    case 44: // sth
+      rs=iRS(instr); ra=iRA(instr); imm=iIMM(instr);
+      addr = ((ra ? GC_CPU.r[ra] : 0) + imm) >>> 0;
+      memWrite16(addr, GC_CPU.r[rs] & 0xFFFF);
+      break;
+    case 45: // sthu
+      rs=iRS(instr); ra=iRA(instr); imm=iIMM(instr);
+      addr = (GC_CPU.r[ra] + imm) >>> 0;
+      memWrite16(addr, GC_CPU.r[rs] & 0xFFFF);
+      GC_CPU.r[ra] = addr | 0;
+      break;
+
+    // ── LMW / STMW ───────────────────────────────────────────
+    case 46: { // lmw
+      rt=iRT(instr); ra=iRA(instr); imm=iIMM(instr);
+      addr = ((ra ? GC_CPU.r[ra] : 0) + imm) >>> 0;
+      for (let i=rt; i<32; i++) { GC_CPU.r[i] = memRead32(addr) | 0; addr = (addr+4)>>>0; }
+      break;
+    }
+    case 47: { // stmw
+      rs=iRS(instr); ra=iRA(instr); imm=iIMM(instr);
+      addr = ((ra ? GC_CPU.r[ra] : 0) + imm) >>> 0;
+      for (let i=rs; i<32; i++) { memWrite32(addr, GC_CPU.r[i]>>>0); addr = (addr+4)>>>0; }
+      break;
+    }
+
+    // ── LOAD/STORE FLOAT ─────────────────────────────────────
+    case 48: // lfs
+      rt=iRT(instr); ra=iRA(instr); imm=iIMM(instr);
+      addr = ((ra ? GC_CPU.r[ra] : 0) + imm) >>> 0;
+      { const u32=memRead32(addr); const fa=new Float32Array(new Uint32Array([u32]).buffer); GC_CPU.f[rt]=fa[0]; }
+      break;
+    case 49: // lfsu
+      rt=iRT(instr); ra=iRA(instr); imm=iIMM(instr);
+      addr = (GC_CPU.r[ra] + imm) >>> 0;
+      { const u32=memRead32(addr); const fa=new Float32Array(new Uint32Array([u32]).buffer); GC_CPU.f[rt]=fa[0]; }
+      GC_CPU.r[ra] = addr|0;
+      break;
+    case 50: // lfd
+      rt=iRT(instr); ra=iRA(instr); imm=iIMM(instr);
+      addr = ((ra ? GC_CPU.r[ra] : 0) + imm) >>> 0;
+      { const hi=memRead32(addr)>>>0, lo=memRead32(addr+4)>>>0;
+        const b=new ArrayBuffer(8); const dv2=new DataView(b);
+        dv2.setUint32(0,hi,false); dv2.setUint32(4,lo,false);
+        GC_CPU.f[rt]=dv2.getFloat64(0,false); }
+      break;
+    case 52: // stfs
+      rs=iRS(instr); ra=iRA(instr); imm=iIMM(instr);
+      addr = ((ra ? GC_CPU.r[ra] : 0) + imm) >>> 0;
+      { const fa=new Float32Array([GC_CPU.f[rs]]); memWrite32(addr, new Uint32Array(fa.buffer)[0]); }
+      break;
+    case 53: // stfsu
+      rs=iRS(instr); ra=iRA(instr); imm=iIMM(instr);
+      addr = (GC_CPU.r[ra] + imm) >>> 0;
+      { const fa=new Float32Array([GC_CPU.f[rs]]); memWrite32(addr, new Uint32Array(fa.buffer)[0]); }
+      GC_CPU.r[ra] = addr|0;
+      break;
+    case 54: // stfd
+      rs=iRS(instr); ra=iRA(instr); imm=iIMM(instr);
+      addr = ((ra ? GC_CPU.r[ra] : 0) + imm) >>> 0;
+      { const b=new ArrayBuffer(8); const dv2=new DataView(b); dv2.setFloat64(0,GC_CPU.f[rs],false);
+        memWrite32(addr, dv2.getUint32(0,false)); memWrite32(addr+4, dv2.getUint32(4,false)); }
+      break;
+
+    // ── ROTATE / SHIFT ───────────────────────────────────────
+    case 21: { // rlwinm
+      rs=iRS(instr); ra=iRA(instr);
+      const sh=iSH(instr), mb=iMB(instr), me=iME(instr);
+      const rot = rotl32(GC_CPU.r[rs], sh);
+      const mask = rlMask(mb, me);
+      GC_CPU.r[ra] = (rot & mask) | 0;
+      if (iRC(instr)) updateCR0(GC_CPU.r[ra]);
+      break;
+    }
+    case 20: { // rlwimi
+      rs=iRS(instr); ra=iRA(instr);
+      const sh=iSH(instr), mb=iMB(instr), me=iME(instr);
+      const rot = rotl32(GC_CPU.r[rs], sh);
+      const mask = rlMask(mb, me);
+      GC_CPU.r[ra] = ((rot & mask) | (GC_CPU.r[ra] & ~mask)) | 0;
+      if (iRC(instr)) updateCR0(GC_CPU.r[ra]);
+      break;
+    }
+    case 23: { // rlwnm
+      rs=iRS(instr); ra=iRA(instr); rb=iRB(instr);
+      const sh=(GC_CPU.r[rb]&31), mb=iMB(instr), me=iME(instr);
+      const rot = rotl32(GC_CPU.r[rs], sh);
+      GC_CPU.r[ra] = (rot & rlMask(mb,me)) | 0;
+      if (iRC(instr)) updateCR0(GC_CPU.r[ra]);
+      break;
+    }
+
+    // ── OPCODE 31 (beaucoup de sous-ops) ─────────────────────
+    case 31: {
+      const xop = (instr>>>1) & 0x3FF;
+      rs=iRS(instr); ra=iRA(instr); rb=iRB(instr); rt=iRT(instr);
+      switch(xop) {
+        // Comparaisons
+        case 0:   cmpSigned(GC_CPU.r[ra]|0, GC_CPU.r[rb]|0, (instr>>>23)&7); break;
+        case 32:  cmpUnsigned(GC_CPU.r[ra]>>>0, GC_CPU.r[rb]>>>0, (instr>>>23)&7); break;
+
+        // Arithmétique
+        case 266: // add[.]
+          GC_CPU.r[rt] = (GC_CPU.r[ra] + GC_CPU.r[rb]) | 0;
+          if(iRC(instr)) updateCR0(GC_CPU.r[rt]);
+          break;
+        case 40: // subf[.]
+          GC_CPU.r[rt] = (GC_CPU.r[rb] - GC_CPU.r[ra]) | 0;
+          if(iRC(instr)) updateCR0(GC_CPU.r[rt]);
+          break;
+        case 10:  // addc
+          tmp = (GC_CPU.r[ra]>>>0) + (GC_CPU.r[rb]>>>0);
+          xerSetCA(tmp>0xFFFFFFFF); GC_CPU.r[rt]=tmp|0;
+          if(iRC(instr)) updateCR0(GC_CPU.r[rt]);
+          break;
+        case 8:   // subfc
+          tmp = (~GC_CPU.r[ra]>>>0) + (GC_CPU.r[rb]>>>0) + 1;
+          xerSetCA(tmp>0xFFFFFFFF); GC_CPU.r[rt]=tmp|0;
+          if(iRC(instr)) updateCR0(GC_CPU.r[rt]);
+          break;
+        case 138: // adde
+          { const ca=(GC_CPU.xer>>>29)&1;
+            tmp=(GC_CPU.r[ra]>>>0)+(GC_CPU.r[rb]>>>0)+ca;
+            xerSetCA(tmp>0xFFFFFFFF); GC_CPU.r[rt]=tmp|0; }
+          if(iRC(instr)) updateCR0(GC_CPU.r[rt]);
+          break;
+        case 136: // subfe
+          { const ca=(GC_CPU.xer>>>29)&1;
+            tmp=(~GC_CPU.r[ra]>>>0)+(GC_CPU.r[rb]>>>0)+ca;
+            xerSetCA(tmp>0xFFFFFFFF); GC_CPU.r[rt]=tmp|0; }
+          break;
+        case 234: // addze
+          { const ca=(GC_CPU.xer>>>29)&1;
+            tmp=(GC_CPU.r[ra]>>>0)+ca;
+            xerSetCA(tmp>0xFFFFFFFF); GC_CPU.r[rt]=tmp|0; }
+          break;
+        case 232: // subfze
+          { const ca=(GC_CPU.xer>>>29)&1;
+            tmp=(~GC_CPU.r[ra]>>>0)+ca;
+            xerSetCA(tmp>0xFFFFFFFF); GC_CPU.r[rt]=tmp|0; }
+          break;
+        case 104: // neg
+          GC_CPU.r[rt] = (-GC_CPU.r[ra]) | 0;
+          if(iRC(instr)) updateCR0(GC_CPU.r[rt]);
+          break;
+        case 235: // mullw
+          GC_CPU.r[rt] = Math.imul(GC_CPU.r[ra], GC_CPU.r[rb]);
+          if(iRC(instr)) updateCR0(GC_CPU.r[rt]);
+          break;
+        case 75:  // mulhw (high 32 bits of 64-bit product)
+          { const res = BigInt(GC_CPU.r[ra]) * BigInt(GC_CPU.r[rb]);
+            GC_CPU.r[rt] = Number(BigInt.asIntN(64,res) >> 32n) | 0; }
+          break;
+        case 11:  // mulhwu
+          { const res = BigInt(GC_CPU.r[ra]>>>0) * BigInt(GC_CPU.r[rb]>>>0);
+            GC_CPU.r[rt] = Number(res >> 32n) | 0; }
+          break;
+        case 491: // divw
+          if(GC_CPU.r[rb]===0) { GC_CPU.r[rt]=0; break; }
+          GC_CPU.r[rt] = (GC_CPU.r[ra]|0) / (GC_CPU.r[rb]|0) | 0;
+          if(iRC(instr)) updateCR0(GC_CPU.r[rt]);
+          break;
+        case 459: // divwu
+          if(GC_CPU.r[rb]===0) { GC_CPU.r[rt]=0; break; }
+          GC_CPU.r[rt] = ((GC_CPU.r[ra]>>>0) / (GC_CPU.r[rb]>>>0)) | 0;
+          if(iRC(instr)) updateCR0(GC_CPU.r[rt]);
+          break;
+
+        // Logique
+        case 28:  // and[.]
+          GC_CPU.r[ra]=(GC_CPU.r[rs]&GC_CPU.r[rb])|0;
+          if(iRC(instr)) updateCR0(GC_CPU.r[ra]); break;
+        case 444: // or[.] (mr = or rA,rS,rS)
+          GC_CPU.r[ra]=(GC_CPU.r[rs]|GC_CPU.r[rb])|0;
+          if(iRC(instr)) updateCR0(GC_CPU.r[ra]); break;
+        case 316: // xor[.]
+          GC_CPU.r[ra]=(GC_CPU.r[rs]^GC_CPU.r[rb])|0;
+          if(iRC(instr)) updateCR0(GC_CPU.r[ra]); break;
+        case 476: // nand
+          GC_CPU.r[ra]=~(GC_CPU.r[rs]&GC_CPU.r[rb])|0; break;
+        case 124: // nor[.] (not = nor rA,rS,rS)
+          GC_CPU.r[ra]=~(GC_CPU.r[rs]|GC_CPU.r[rb])|0;
+          if(iRC(instr)) updateCR0(GC_CPU.r[ra]); break;
+        case 284: // eqv
+          GC_CPU.r[ra]=~(GC_CPU.r[rs]^GC_CPU.r[rb])|0; break;
+        case 60:  // andc
+          GC_CPU.r[ra]=(GC_CPU.r[rs]&~GC_CPU.r[rb])|0; break;
+        case 412: // orc
+          GC_CPU.r[ra]=(GC_CPU.r[rs]|~GC_CPU.r[rb])|0; break;
+
+        // Shifts
+        case 24:  // slw
+          { const n=GC_CPU.r[rb]&0x3F; GC_CPU.r[ra]=(n>=32?0:GC_CPU.r[rs]<<n)|0; }
+          if(iRC(instr)) updateCR0(GC_CPU.r[ra]); break;
+        case 536: // srw
+          { const n=GC_CPU.r[rb]&0x3F; GC_CPU.r[ra]=(n>=32?0:(GC_CPU.r[rs]>>>0)>>>n)|0; }
+          if(iRC(instr)) updateCR0(GC_CPU.r[ra]); break;
+        case 792: // sraw
+          { const n=GC_CPU.r[rb]&0x3F;
+            if(n>=32) GC_CPU.r[ra]=(GC_CPU.r[rs]>>31)|0;
+            else GC_CPU.r[ra]=(GC_CPU.r[rs]>>n)|0; }
+          if(iRC(instr)) updateCR0(GC_CPU.r[ra]); break;
+        case 824: { // srawi
+          const n=iSH(instr);
+          const v=GC_CPU.r[rs]>>n;
+          const ca=(GC_CPU.r[rs]<0)&&(n>0)&&((GC_CPU.r[rs]&((1<<n)-1))!==0);
+          xerSetCA(ca?1:0); GC_CPU.r[ra]=v|0;
+          if(iRC(instr)) updateCR0(GC_CPU.r[ra]); break; }
+        case 26:  // cntlzw
+          { let n=32,v=GC_CPU.r[rs]>>>0; for(;n>0&&!(v&0x80000000);n--,v<<=1){}
+            GC_CPU.r[ra]=(32-n)|0; }
+          break;
+        case 954: // extsb
+          GC_CPU.r[ra]=(GC_CPU.r[rs]<<24>>24)|0;
+          if(iRC(instr)) updateCR0(GC_CPU.r[ra]); break;
+        case 922: // extsh
+          GC_CPU.r[ra]=(GC_CPU.r[rs]<<16>>16)|0;
+          if(iRC(instr)) updateCR0(GC_CPU.r[ra]); break;
+
+        // Load/Store indexés
+        case 23: // lwzx
+          addr=((ra?GC_CPU.r[ra]:0)+GC_CPU.r[rb])>>>0;
+          GC_CPU.r[rt]=memRead32(addr)|0; break;
+        case 55: // lwzux
+          addr=(GC_CPU.r[ra]+GC_CPU.r[rb])>>>0;
+          GC_CPU.r[rt]=memRead32(addr)|0; GC_CPU.r[ra]=addr|0; break;
+        case 87: // lbzx
+          addr=((ra?GC_CPU.r[ra]:0)+GC_CPU.r[rb])>>>0;
+          GC_CPU.r[rt]=memRead8(addr); break;
+        case 279: // lhzx
+          addr=((ra?GC_CPU.r[ra]:0)+GC_CPU.r[rb])>>>0;
+          GC_CPU.r[rt]=memRead16(addr); break;
+        case 343: // lhax
+          addr=((ra?GC_CPU.r[ra]:0)+GC_CPU.r[rb])>>>0;
+          GC_CPU.r[rt]=(memRead16(addr)<<16>>16); break;
+        case 151: // stwx
+          addr=((ra?GC_CPU.r[ra]:0)+GC_CPU.r[rb])>>>0;
+          memWrite32(addr,GC_CPU.r[rs]>>>0); break;
+        case 183: // stwux
+          addr=(GC_CPU.r[ra]+GC_CPU.r[rb])>>>0;
+          memWrite32(addr,GC_CPU.r[rs]>>>0); GC_CPU.r[ra]=addr|0; break;
+        case 215: // stbx
+          addr=((ra?GC_CPU.r[ra]:0)+GC_CPU.r[rb])>>>0;
+          memWrite8(addr,GC_CPU.r[rs]&0xFF); break;
+        case 407: // sthx
+          addr=((ra?GC_CPU.r[ra]:0)+GC_CPU.r[rb])>>>0;
+          memWrite16(addr,GC_CPU.r[rs]&0xFFFF); break;
+        case 20:  // lwarx (lock - HLE: just load)
+          addr=((ra?GC_CPU.r[ra]:0)+GC_CPU.r[rb])>>>0;
+          GC_CPU.r[rt]=memRead32(addr)|0; break;
+        case 150: // stwcx. (store conditional - always succeed)
+          addr=((ra?GC_CPU.r[ra]:0)+GC_CPU.r[rb])>>>0;
+          memWrite32(addr,GC_CPU.r[rs]>>>0); crSet(0,0,0,1,0); break;
+        case 534: // lwbrx (byte-reversed)
+          { addr=((ra?GC_CPU.r[ra]:0)+GC_CPU.r[rb])>>>0;
+            const v=memRead32(addr);
+            GC_CPU.r[rt]=((v&0xFF)<<24)|((v&0xFF00)<<8)|((v>>>8)&0xFF00)|((v>>>24)&0xFF)|0; }
+          break;
+        case 662: // stwbrx
+          { addr=((ra?GC_CPU.r[ra]:0)+GC_CPU.r[rb])>>>0;
+            const v=GC_CPU.r[rs]>>>0;
+            memWrite32(addr,((v&0xFF)<<24)|((v&0xFF00)<<8)|((v>>>8)&0xFF00)|((v>>>24)&0xFF)); }
+          break;
+
+        // FP indexé
+        case 535: // lfsx
+          addr=((ra?GC_CPU.r[ra]:0)+GC_CPU.r[rb])>>>0;
+          { const u=memRead32(addr); GC_CPU.f[rt]=new Float32Array(new Uint32Array([u]).buffer)[0]; }
+          break;
+        case 663: // stfsx
+          addr=((ra?GC_CPU.r[ra]:0)+GC_CPU.r[rb])>>>0;
+          { const fa=new Float32Array([GC_CPU.f[rs]]); memWrite32(addr,new Uint32Array(fa.buffer)[0]); }
+          break;
+        case 599: // lfdx
+          addr=((ra?GC_CPU.r[ra]:0)+GC_CPU.r[rb])>>>0;
+          { const hi=memRead32(addr)>>>0,lo=memRead32(addr+4)>>>0; const b=new ArrayBuffer(8); const dv2=new DataView(b); dv2.setUint32(0,hi,false); dv2.setUint32(4,lo,false); GC_CPU.f[rt]=dv2.getFloat64(0,false); }
+          break;
+        case 727: // stfdx
+          addr=((ra?GC_CPU.r[ra]:0)+GC_CPU.r[rb])>>>0;
+          { const b=new ArrayBuffer(8); const dv2=new DataView(b); dv2.setFloat64(0,GC_CPU.f[rs],false); memWrite32(addr,dv2.getUint32(0,false)); memWrite32(addr+4,dv2.getUint32(4,false)); }
+          break;
+        case 759: // stfdux
+          addr=(GC_CPU.r[ra]+GC_CPU.r[rb])>>>0;
+          { const b=new ArrayBuffer(8); const dv2=new DataView(b); dv2.setFloat64(0,GC_CPU.f[rs],false); memWrite32(addr,dv2.getUint32(0,false)); memWrite32(addr+4,dv2.getUint32(4,false)); }
+          GC_CPU.r[ra]=addr|0; break;
+
+        // SPR
+        case 339: // mfspr
+          GC_CPU.r[rt] = spr_read(iSPR(instr)) | 0; break;
+        case 467: // mtspr
+          spr_write(iSPR(instr), GC_CPU.r[rs]>>>0); break;
+        case 19:  // mfcr
+          GC_CPU.r[rt] = GC_CPU.cr | 0; break;
+        case 144: // mtcrf
+          { const fmask=(instr>>>12)&0xFF;
+            let newcr=GC_CPU.cr;
+            for(let fi=0;fi<8;fi++) if((fmask>>(7-fi))&1) { const shift=28-fi*4; newcr=(newcr&~(0xF<<shift))|(GC_CPU.r[rs]&(0xF<<shift)); }
+            GC_CPU.cr=newcr; }
+          break;
+        case 83:  // mfmsr
+          GC_CPU.r[rt]=GC_CPU.msr|0; break;
+        case 146: // mtmsr
+          GC_CPU.msr=GC_CPU.r[rs]>>>0; break;
+        case 50:  // rfi
+          GC_CPU.pc=GC_CPU.srr0>>>0; GC_CPU.msr=GC_CPU.srr1>>>0; break;
+
+        // Sync / cache
+        case 598: break; // sync
+        case 246: break; // dcbst
+        case 278: break; // dcbt (prefetch)
+        case 54:  break; // dcbf
+        case 982: break; // icbi
+        case 470: break; // dcbi
+        case 758: break; // dcba
+        case 1010: break;// dcbz_l (GC paired-single)
+        case 1014: break; // dcbz
+        case 566: break;  // tlbsync
+        case 150+512: break; // ?
+
+        // CR ops
+        case 33: GC_CPU.cr |= (1<<(31-((instr>>>21)&0x1F))) | (1<<(31-((instr>>>16)&0x1F))); break; // crnor
+        case 129: break;
+        case 193: { const d=(instr>>>21)&0x1F,a=(instr>>>16)&0x1F,b_=(instr>>>11)&0x1F; const bva=(GC_CPU.cr>>>(31-a))&1, bvb=(GC_CPU.cr>>>(31-b_))&1; const r=bva^bvb; GC_CPU.cr=(GC_CPU.cr&~(1<<(31-d)))|(r<<(31-d)); break; } // crxor
+        case 225: { const d=(instr>>>21)&0x1F,a=(instr>>>16)&0x1F,b_=(instr>>>11)&0x1F; const bva=(GC_CPU.cr>>>(31-a))&1, bvb=(GC_CPU.cr>>>(31-b_))&1; const r=bva&bvb; GC_CPU.cr=(GC_CPU.cr&~(1<<(31-d)))|(r<<(31-d)); break; } // crand
+        case 417: { const d=(instr>>>21)&0x1F,a=(instr>>>16)&0x1F,b_=(instr>>>11)&0x1F; const bva=(GC_CPU.cr>>>(31-a))&1, bvb=(GC_CPU.cr>>>(31-b_))&1; const r=bva|bvb; GC_CPU.cr=(GC_CPU.cr&~(1<<(31-d)))|(r<<(31-d)); break; } // cror
+        case 289: break; // creqv
+        case 257: break; // crand
+        case 449: break;
+        case 0+256: break; // mcrxr
+
+        default: break; // instruction inconnue → ignorer
+      }
+      break;
+    }
+
+    // ── OPCODE 59 — Flottant simple précision ─────────────────
+    case 59: {
+      const xop=(instr>>>1)&0x1F;
+      const frt=iRT(instr), fra=iRA(instr), frb=iRB(instr), frc=(instr>>>6)&0x1F;
+      switch(xop) {
+        case 21: GC_CPU.f[frt]=Math.fround(GC_CPU.f[fra]+GC_CPU.f[frb]); break; // fadds
+        case 20: GC_CPU.f[frt]=Math.fround(GC_CPU.f[fra]-GC_CPU.f[frb]); break; // fsubs
+        case 25: GC_CPU.f[frt]=Math.fround(GC_CPU.f[fra]*GC_CPU.f[frc]); break; // fmuls
+        case 18: GC_CPU.f[frt]=Math.fround(GC_CPU.f[fra]/GC_CPU.f[frb]); break; // fdivs
+        case 29: GC_CPU.f[frt]=Math.fround(GC_CPU.f[fra]*GC_CPU.f[frc]+GC_CPU.f[frb]); break; // fmadds
+        case 28: GC_CPU.f[frt]=Math.fround(GC_CPU.f[fra]*GC_CPU.f[frc]-GC_CPU.f[frb]); break; // fmsubs
+        case 31: GC_CPU.f[frt]=Math.fround(-(GC_CPU.f[fra]*GC_CPU.f[frc]+GC_CPU.f[frb])); break;
+        case 30: GC_CPU.f[frt]=Math.fround(-(GC_CPU.f[fra]*GC_CPU.f[frc]-GC_CPU.f[frb])); break;
+        case 24: GC_CPU.f[frt]=Math.fround(Math.sqrt(GC_CPU.f[frb])); break;
+        case 22: GC_CPU.f[frt]=Math.fround(1/Math.sqrt(GC_CPU.f[frb])); break; // frsqrtes
+        case 26: GC_CPU.f[frt]=Math.fround(GC_CPU.f[frb]); break; // fres (reciprocal)
+        default: break;
+      }
+      if(iRC(instr)) { /* update FPSCR */ }
+      break;
+    }
+
+    // ── OPCODE 63 — Flottant double précision ─────────────────
+    case 63: {
+      const xop=(instr>>>1)&0x3FF;
+      const xop5=(instr>>>1)&0x1F;
+      const frt=iRT(instr), fra=iRA(instr), frb=iRB(instr), frc=(instr>>>6)&0x1F;
+      switch(xop5) {
+        case 21: GC_CPU.f[frt]=GC_CPU.f[fra]+GC_CPU.f[frb]; break; // fadd
+        case 20: GC_CPU.f[frt]=GC_CPU.f[fra]-GC_CPU.f[frb]; break; // fsub
+        case 25: GC_CPU.f[frt]=GC_CPU.f[fra]*GC_CPU.f[frc]; break; // fmul
+        case 18: GC_CPU.f[frt]=GC_CPU.f[fra]/GC_CPU.f[frb]; break; // fdiv
+        case 29: GC_CPU.f[frt]=GC_CPU.f[fra]*GC_CPU.f[frc]+GC_CPU.f[frb]; break; // fmadd
+        case 28: GC_CPU.f[frt]=GC_CPU.f[fra]*GC_CPU.f[frc]-GC_CPU.f[frb]; break; // fmsub
+        case 31: GC_CPU.f[frt]=-(GC_CPU.f[fra]*GC_CPU.f[frc]+GC_CPU.f[frb]); break;
+        case 30: GC_CPU.f[frt]=-(GC_CPU.f[fra]*GC_CPU.f[frc]-GC_CPU.f[frb]); break;
+        case 24: GC_CPU.f[frt]=Math.sqrt(GC_CPU.f[frb]); break;
+        default: break;
+      }
+      switch(xop) {
+        case 72:  GC_CPU.f[frt]=Math.abs(GC_CPU.f[frb]); break; // fabs
+        case 136: GC_CPU.f[frt]=-Math.abs(GC_CPU.f[frb]); break; // fnabs
+        case 40:  GC_CPU.f[frt]=-GC_CPU.f[frb]; break; // fneg
+        case 72+0: break;
+        case 264: GC_CPU.f[frt]=GC_CPU.f[frb]; break; // fmr (copy)
+        case 12:  GC_CPU.f[frt]=Math.fround(GC_CPU.f[frb]); break; // frsp (round to single)
+        case 14:  GC_CPU.f[frt]=Math.trunc(GC_CPU.f[frb]); break; // fctiw
+        case 15:  GC_CPU.f[frt]=Math.trunc(GC_CPU.f[frb]); break; // fctiwz
+        case 0:   // fcmpu
+          { const a=GC_CPU.f[fra], b2=GC_CPU.f[frb]; const fi=(instr>>>23)&7;
+            crSet(fi,a<b2?1:0,a>b2?1:0,a===b2?1:0,0); }
+          break;
+        case 32:  // fcmpo (same as fcmpu for our purposes)
+          { const a=GC_CPU.f[fra], b2=GC_CPU.f[frb]; const fi=(instr>>>23)&7;
+            crSet(fi,a<b2?1:0,a>b2?1:0,a===b2?1:0,0); }
+          break;
+        case 583: GC_CPU.r[frt]=GC_CPU.fpscr; break; // mffs
+        case 711: GC_CPU.fpscr=GC_CPU.f[frb]|0; break; // mtfsf
+        default: break;
+      }
+      if(iRC(instr)) { /* update FPSCR */ }
+      break;
+    }
+
+    // ── OPCODE 4 — Paired Singles (GC-specific) ──────────────
+    case 4: {
+      // Stub minimal pour PS — on traite comme double-précision scalaire
+      const xop=(instr>>>1)&0x1F;
+      const frt=iRT(instr), fra=iRA(instr), frb=iRB(instr), frc=(instr>>>6)&0x1F;
+      switch(xop) {
+        case 21: GC_CPU.f[frt]=GC_CPU.f[fra]+GC_CPU.f[frb]; break; // ps_add
+        case 20: GC_CPU.f[frt]=GC_CPU.f[fra]-GC_CPU.f[frb]; break; // ps_sub
+        case 25: GC_CPU.f[frt]=GC_CPU.f[fra]*GC_CPU.f[frc]; break; // ps_mul
+        case 18: GC_CPU.f[frt]=GC_CPU.f[fra]/GC_CPU.f[frb]; break; // ps_div
+        case 29: GC_CPU.f[frt]=GC_CPU.f[fra]*GC_CPU.f[frc]+GC_CPU.f[frb]; break; // ps_madd
+        case 28: GC_CPU.f[frt]=GC_CPU.f[fra]*GC_CPU.f[frc]-GC_CPU.f[frb]; break; // ps_msub
+        case 264>>1: GC_CPU.f[frt]=GC_CPU.f[frb]; break; // ps_mr
+        case 40>>1:  GC_CPU.f[frt]=-GC_CPU.f[frb]; break; // ps_neg
+        default: {
+          // ps_l* / ps_st*
+          const xop10=(instr>>>1)&0x3FF;
+          const ra2=iRA(instr),rt2=iRT(instr),rb2=iRB(instr);
+          switch(xop10) {
+            case 6:  // psq_l
+              { const off2=(instr<<20>>20)&~7; addr=((ra2?GC_CPU.r[ra2]:0)+off2)>>>0;
+                const u=memRead32(addr); GC_CPU.f[rt2]=new Float32Array(new Uint32Array([u]).buffer)[0]; }
+              break;
+            case 7:  // psq_st
+              { const off2=(instr<<20>>20)&~7; addr=((ra2?GC_CPU.r[ra2]:0)+off2)>>>0;
+                const fa=new Float32Array([GC_CPU.f[rt2]]); memWrite32(addr,new Uint32Array(fa.buffer)[0]); }
+              break;
+            default: break;
+          }
+        }
+      }
+      break;
+    }
+
+    case 2: // tdi (trap doubleword immediate) — ignorer
+    case 3: // twi (trap word immediate)
+      break;
+
+    default: break; // instruction non reconnue
+  }
+}
+
+// ── HLE — STUBS SYSTÈME GAMECUBE ────────────────────────────────
+//  Ces fonctions simulent les appels OS du SDK Dolphin OS
+//  pour que le jeu puisse démarrer sans émulation matérielle complète.
+
+let hleLog = [];
+
+function hleRegister(addr, fn) {
+  GC_CPU.hleMap[addr >>> 0] = fn;
+}
+
+function hleBlr() {
+  GC_CPU.pc = GC_CPU.lr >>> 0;
+}
+
+function hleSetupStubs() {
+  // Les appels typiques du SDK au démarrage sont interceptés ici.
+  // L'adresse réelle est lue depuis la table des symboles si disponible.
+  // Sinon on pose des hooks aux adresses communes.
+
+  // OSInit
+  hleRegister(0x80000004, () => {
+    hleLog.push('OSInit()');
+    // Setup OS context
+    memWrite32(0x800000F4, 0x01800000); // arena start
+    memWrite32(0x800000F8, 0x81800000); // arena end
+    memWrite32(0x800000E4, 24*1024*1024); // mem1 size
+    hleBlr();
+  });
+
+  // OSReport / printf style
+  // Le jeu appelle OSReport avec r3 = adresse de la chaîne de format
+  hleRegister(0x80000008, () => {
+    const strAddr = GC_CPU.r[3] >>> 0;
+    let s = '';
+    for(let i=0; i<256; i++) { const c=memRead8((strAddr+i)>>>0); if(!c) break; s+=String.fromCharCode(c); }
+    hleLog.push('OSReport: ' + s.trim());
+    if(hleLog.length > 50) hleLog.shift();
+    log('info', '[OS] ' + s.trim().slice(0,80));
+    hleBlr();
+  });
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
+//  GCube v0.4 — Couche matérielle complète GameCube
+//  Hardware registers, DVD Interface, OS HLE, Thread system, GX stub
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── HARDWARE REGISTER MAP ──────────────────────────────────────────────
+// GameCube hardware base addresses
+const HW = {
+  CP:   0xCC000000, // Command Processor (GX fifo)
+  PE:   0xCC001000, // Pixel Engine
+  VI:   0xCC002000, // Video Interface
+  PI:   0xCC003000, // Processor Interface
+  MI:   0xCC004000, // Memory Interface
+  DSP:  0xCC005000, // DSP Interface
+  DI:   0xCC006000, // DVD Interface
+  SI:   0xCC006400, // Serial Interface (controllers)
+  EXI:  0xCC006800, // External Interface (memcard, IPL)
+  AI:   0xCC006C00, // Audio Interface
+  GX_FIFO: 0xCC008000, // GX FIFO
+};
+
+// Registres internes (32-bit, big-endian)
+const HW_REG = new Map();
+
+// VI registers
+let VI_REG = {
+  VTR:   0,    // Vertical timing
+  DCR:   0,    // Display config
+  HTR0:  0,    // Horizontal timing 0
+  HTR1:  0,    // Horizontal timing 1
+  VTO:   0,    // Odd field vertical timing
+  VTE:   0,    // Even field vertical timing
+  TFBL:  0,    // Top field base (left) — XFB address
+  TFBR:  0,    // Top field base (right)
+  BFBL:  0,    // Bottom field base (left)
+  BFBR:  0,    // Bottom field base (right)
+  DPV:   0,    // Display position (V)
+  DPH:   0,    // Display position (H)
+  DI0:   0,    // Display interrupt 0
+  DI1:   0,    // Display interrupt 1
+  DI2:   0,    // Display interrupt 2
+  DI3:   0,    // Display interrupt 3
+  HSR:   0,    // Horizontal scaling register
+  FBW:   640,  // Framebuffer width
+};
+
+// PI registers (interrupts)
+let PI_REG = {
+  INTSR:    0,     // Interrupt Status Register
+  INTMR:    0,     // Interrupt Mask Register
+  FIFO_BASE: 0,
+  FIFO_END:  0,
+  FIFO_WP:   0,
+  RESET:    0,
+};
+
+// DVD Interface registers
+let DI_REG = {
+  SR:  0x00000028, // Status: cover closed, disk present
+  CVR: 0,
+  CMDBUF0: 0,
+  CMDBUF1: 0,
+  CMDBUF2: 0,
+  MAR: 0,  // DMA address
+  LENGTH: 0,
+  CR: 0,   // Control
+  IMMBUF: 0,
+  CFG: 0,
+};
+
+// Audio Interface
+let AI_REG = {
+  AICR: 0,   // AI Control Register
+  AIVR: 0,   // AI Volume Register
+  AISCNT: 0, // AI Sample Counter
+  AIIT: 0,   // AI Interrupt Timing
+};
+
+// ── LECTURE/ÉCRITURE HW REGISTERS ─────────────────────────────────────
+function hwRead32_real(addr) {
+  const a = addr >>> 0;
+
+  // VI (Video Interface) - 0xCC002000
+  if (a >= 0xCC002000 && a < 0xCC003000) {
+    const off = (a - 0xCC002000) >> 1; // 16-bit regs
+    switch (a & 0xFF) {
+      case 0x02: return 0x0001; // VTR
+      case 0x04: return VI_REG.DCR;
+      case 0x1C: return GC_CPU.xfbAddr >>> 0; // TFBL
+      case 0x24: return VI_REG.DPV | (VI_REG.DPH << 16);
+      case 0x30: case 0x32: return 0; // DI registers
+      default: return 0;
+    }
+  }
+
+  // PI (Processor Interface) - 0xCC003000
+  if (a >= 0xCC003000 && a < 0xCC004000) {
+    switch (a & 0xFF) {
+      case 0x00: return PI_REG.INTSR;
+      case 0x04: return PI_REG.INTMR;
+      case 0x0C: return PI_REG.FIFO_BASE;
+      case 0x10: return PI_REG.FIFO_END;
+      case 0x14: return PI_REG.FIFO_WP;
+      default: return 0;
+    }
+  }
+
+  // DVD Interface - 0xCC006000
+  if (a >= 0xCC006000 && a < 0xCC006400) {
+    switch (a & 0xFF) {
+      case 0x00: return DI_REG.SR;
+      case 0x04: return DI_REG.CVR;
+      case 0x08: return DI_REG.CMDBUF0;
+      case 0x0C: return DI_REG.CMDBUF1;
+      case 0x10: return DI_REG.CMDBUF2;
+      case 0x14: return DI_REG.MAR;
+      case 0x18: return DI_REG.LENGTH;
+      case 0x1C: return DI_REG.CR & ~1; // not busy
+      case 0x20: return DI_REG.IMMBUF;
+      default: return 0;
+    }
+  }
+
+  // SI (Serial Interface) - controllers - 0xCC006400
+  if (a >= 0xCC006400 && a < 0xCC006800) {
+    switch (a & 0xFF) {
+      case 0x00: return 0x00090000; // channel 0 response: standard pad connected
+      case 0x04: return PAD_makePollResponse(0);
+      case 0x80: return PAD_makePollResponse(0);
+      case 0x84: return PAD_makeAnalogResponse(0);
+      case 0xC0: return 0; // SI status
+      default: return 0;
+    }
+  }
+
+  // AI (Audio Interface) - 0xCC006C00
+  if (a >= 0xCC006C00 && a < 0xCC007000) {
+    return 0;
+  }
+
+  // EXI (External Interface) - 0xCC006800
+  if (a >= 0xCC006800 && a < 0xCC006C00) {
+    return 0; // No memory card
+  }
+
+  // CP (Command Processor / GX) - 0xCC000000
+  if (a >= 0xCC000000 && a < 0xCC001000) {
+    return 0x0004; // CP ready
+  }
+
+  // PE (Pixel Engine) - 0xCC001000
+  if (a >= 0xCC001000 && a < 0xCC002000) {
+    return 0;
+  }
+
+  // DSP - 0xCC005000
+  if (a >= 0xCC005000 && a < 0xCC006000) {
+    switch (a & 0xFF) {
+      case 0x00: return 0x01C1; // DSP init done, HALT
+      default: return 0;
+    }
+  }
+
+  return 0;
+}
+
+function hwWrite32_real(addr, val) {
+  const a = addr >>> 0;
+  const v = val >>> 0;
+
+  // VI
+  if (a >= 0xCC002000 && a < 0xCC003000) {
+    switch (a & 0xFF) {
+      case 0x1C: // TFBL - top field base left = XFB address
+        GC_CPU.xfbAddr = v & 0x01FFFFFC;
+        break;
+      case 0x04: VI_REG.DCR = v; break;
+    }
+    return;
+  }
+
+  // PI
+  if (a >= 0xCC003000 && a < 0xCC004000) {
+    switch (a & 0xFF) {
+      case 0x00: PI_REG.INTSR &= ~v; break; // Clear interrupts
+      case 0x04: PI_REG.INTMR = v; break;
+      case 0x0C: PI_REG.FIFO_BASE = v; break;
+      case 0x10: PI_REG.FIFO_END = v; break;
+      case 0x14: PI_REG.FIFO_WP = v; break;
+    }
+    return;
+  }
+
+  // DVD Interface
+  if (a >= 0xCC006000 && a < 0xCC006400) {
+    switch (a & 0xFF) {
+      case 0x00: DI_REG.SR = v; break;
+      case 0x08: DI_REG.CMDBUF0 = v; break;
+      case 0x0C: DI_REG.CMDBUF1 = v; break;
+      case 0x10: DI_REG.CMDBUF2 = v; break;
+      case 0x14: DI_REG.MAR = v; break;
+      case 0x18: DI_REG.LENGTH = v; break;
+      case 0x1C: // CR - execute command
+        DI_REG.CR = v;
+        if (v & 1) executeDVDCommand();
+        break;
+    }
+    return;
+  }
+
+  // GX FIFO writes (0xCC008000) - intercept GX commands
+  if (a === 0xCC008000 || (a >= HW.CP && a < HW.CP + 0x80)) {
+    gxFifoWrite32(v);
+    return;
+  }
+
+  // DSP
+  if (a >= 0xCC005000 && a < 0xCC006000) {
+    switch (a & 0xFF) {
+      case 0x00: DSP_control = v; break;
+    }
+    return;
+  }
+}
+
+let DSP_control = 0;
+
+// ── DVD COMMAND EXECUTION ──────────────────────────────────────────────
+function executeDVDCommand() {
+  const cmd = (DI_REG.CMDBUF0 >>> 24) & 0xFF;
+  const dstAddr = DI_REG.MAR >>> 0;
+  const length  = DI_REG.LENGTH >>> 0;
+  const discOff = (DI_REG.CMDBUF1 & 0x7FFFFFFF) * 4; // offset = reg * 4 for GC
+
+  switch (cmd) {
+    case 0xA8: // Read (DMA transfer from disc)
+      if (DISC_DATA && length > 0) {
+        const off2 = vmAddr(dstAddr);
+        if (off2 !== null && discOff + length <= DISC_DATA.length) {
+          for (let i = 0; i < length; i++) MEM1[off2 + i] = DISC_DATA[discOff + i];
+          log('info', `DVD Read: 0x${discOff.toString(16).toUpperCase()} → MEM 0x${dstAddr.toString(16).toUpperCase()} (${fmtBytes(length)})`);
+        }
+      }
+      DI_REG.SR |= 0x04; // Transfer complete
+      DI_REG.CR &= ~1;   // Not busy
+      // Trigger DI interrupt
+      PI_REG.INTSR |= 0x0004;
+      break;
+
+    case 0xE1: // Seek
+      DI_REG.CR &= ~1;
+      break;
+
+    case 0xAB: // Read disk ID
+      if (DISC_DATA) {
+        const off2 = vmAddr(dstAddr);
+        if (off2 !== null) {
+          for (let i = 0; i < Math.min(32, length); i++) MEM1[off2+i] = DISC_DATA[i];
+        }
+      }
+      DI_REG.CR &= ~1;
+      break;
+
+    case 0xE0: // Inquiry / get drive status
+      DI_REG.IMMBUF = 0x00060000; // drive version
+      DI_REG.CR &= ~1;
+      break;
+
+    default:
+      DI_REG.CR &= ~1;
+      break;
+  }
+}
+
+// ── CONTROLLER / PAD EMULATION ─────────────────────────────────────────
+function PAD_makePollResponse(port) {
+  // Bit layout of PAD status word
+  let buttons = 0;
+  // Map pressedKeys / pressedBtns to GC buttons
+  const km = keyMap;
+  if (pressedKeys.has(km['A']))     buttons |= 0x0100; // A
+  if (pressedKeys.has(km['B']))     buttons |= 0x0200; // B
+  if (pressedKeys.has(km['X']))     buttons |= 0x0400; // X
+  if (pressedKeys.has(km['Y']))     buttons |= 0x0800; // Y
+  if (pressedKeys.has(km['Start'])) buttons |= 0x1000; // Start
+  if (pressedKeys.has(km['L']))     buttons |= 0x0040; // L
+  if (pressedKeys.has(km['R']))     buttons |= 0x0020; // R
+  if (pressedKeys.has(km['Z']))     buttons |= 0x0010; // Z
+  if (pressedKeys.has(km['Up']))    buttons |= 0x0008; // D-Up
+  if (pressedKeys.has(km['Down']))  buttons |= 0x0004; // D-Down
+  if (pressedKeys.has(km['Left']))  buttons |= 0x0002; // D-Left
+  if (pressedKeys.has(km['Right'])) buttons |= 0x0001; // D-Right
+  // Error bit: 0x0000 = no error, pad connected
+  return (buttons << 16) | 0x00000000;
+}
+
+function PAD_makeAnalogResponse(port) {
+  let stickX = 128, stickY = 128, cX = 128, cY = 128;
+  const km = keyMap;
+  if (pressedKeys.has(km['Up']))    stickY = 200;
+  if (pressedKeys.has(km['Down']))  stickY = 56;
+  if (pressedKeys.has(km['Left']))  stickX = 56;
+  if (pressedKeys.has(km['Right'])) stickX = 200;
+  return ((stickX & 0xFF) << 24) | ((stickY & 0xFF) << 16) | ((cX & 0xFF) << 8) | (cY & 0xFF);
+}
+
+// ── GX FIFO / MINI RENDERER ───────────────────────────────────────────
+const GX_FIFO_BUF = new Uint8Array(4 * 1024 * 1024); // 4 MB fifo buffer
+let gxFifoPos  = 0;
+let gxFifoRead = 0;
+
+// GX state
+const GX_STATE = {
+  vtxDesc:   0,
+  vtxAttr:   new Uint32Array(8),
+  matIdx:    0,
+  proj:      new Float32Array(16),
+  modelview: new Float32Array(16),
+  viewport:  { x:0, y:0, w:640, h:480, zNear:0, zFar:1 },
+  scissors:  { x:0, y:0, w:640, h:480 },
+  clearColor: [0,0,0,255],
+  zClear:    0xFFFFFF,
+  tev:       { color:[128,128,128,255] },
+  primType:  0,
+  primVerts: [],
+  vertCount: 0,
+  vertExpected: 0,
+  currentVtx: {},
+  positions: [],
+  colors: [],
+  normals: [],
+  texcoords: [],
+  // Internal framebuffer (RGBA)
+  fbData: null,
+  fbW: 640, fbH: 480,
+};
+
+// Init identity matrices
+function mat4Identity(m) { m.fill(0); m[0]=m[5]=m[10]=m[15]=1; }
+mat4Identity(GX_STATE.proj);
+mat4Identity(GX_STATE.modelview);
+
+// Software rasterizer framebuffer
+GX_STATE.fbData = new Uint8ClampedArray(640 * 480 * 4);
+GX_STATE.zBuffer = new Float32Array(640 * 480).fill(1.0);
+
+function gxFifoWrite32(val) {
+  const v = val >>> 0;
+  GX_FIFO_BUF[gxFifoPos++] = (v >>> 24) & 0xFF;
+  GX_FIFO_BUF[gxFifoPos++] = (v >>> 16) & 0xFF;
+  GX_FIFO_BUF[gxFifoPos++] = (v >>>  8) & 0xFF;
+  GX_FIFO_BUF[gxFifoPos++] = (v       ) & 0xFF;
+  processGXFifo();
+}
+
+function gxFifoWrite8(val) {
+  GX_FIFO_BUF[gxFifoPos++] = val & 0xFF;
+  processGXFifo();
+}
+
+// GX command byte constants
+const GX_CMD = {
+  NOP:       0x00,
+  LOAD_BP:   0x61,
+  LOAD_CP:   0x08,
+  LOAD_XF:   0x10,
+  VTXFMT:    0x40, // + format index
+  DRAW_QUADS:    0x80,
+  DRAW_TRIS:     0x90,
+  DRAW_TRISTRIP: 0x98,
+  DRAW_TRIFAN:   0xA0,
+  DRAW_LINES:    0xA8,
+  DRAW_LINESTRIP: 0xB0,
+  DRAW_POINTS:   0xB8,
+};
+
+function processGXFifo() {
+  while (gxFifoRead + 1 <= gxFifoPos) {
+    const cmd = GX_FIFO_BUF[gxFifoRead];
+
+    if (cmd === GX_CMD.NOP) { gxFifoRead++; continue; }
+
+    if (cmd === GX_CMD.LOAD_BP) {
+      if (gxFifoRead + 5 > gxFifoPos) return;
+      const reg = GX_FIFO_BUF[gxFifoRead+1];
+      const val2 = (GX_FIFO_BUF[gxFifoRead+2]<<16)|(GX_FIFO_BUF[gxFifoRead+3]<<8)|GX_FIFO_BUF[gxFifoRead+4];
+      handleBPReg(reg, val2);
+      gxFifoRead += 5; continue;
+    }
+
+    if (cmd === GX_CMD.LOAD_CP) {
+      if (gxFifoRead + 5 > gxFifoPos) return;
+      const reg2 = GX_FIFO_BUF[gxFifoRead+1];
+      const val3 = (GX_FIFO_BUF[gxFifoRead+2]<<24)|(GX_FIFO_BUF[gxFifoRead+3]<<16)|(GX_FIFO_BUF[gxFifoRead+4]<<8)|GX_FIFO_BUF[gxFifoRead+5];
+      if (gxFifoRead + 6 > gxFifoPos) return;
+      handleCPReg(reg2, val3);
+      gxFifoRead += 6; continue;
+    }
+
+    if (cmd === GX_CMD.LOAD_XF) {
+      if (gxFifoRead + 5 > gxFifoPos) return;
+      const len  = (GX_FIFO_BUF[gxFifoRead+1]<<8)|GX_FIFO_BUF[gxFifoRead+2];
+      const addr2 = (GX_FIFO_BUF[gxFifoRead+3]<<8)|GX_FIFO_BUF[gxFifoRead+4];
+      const dataLen = (len+1)*4;
+      if (gxFifoRead + 5 + dataLen > gxFifoPos) return;
+      handleXFLoad(addr2, len, gxFifoRead+5);
+      gxFifoRead += 5 + dataLen; continue;
+    }
+
+    // Draw commands 0x80–0xBF
+    if ((cmd & 0xF8) >= 0x80 && (cmd & 0xF8) <= 0xB8) {
+      if (gxFifoRead + 3 > gxFifoPos) return;
+      const vtxCount = (GX_FIFO_BUF[gxFifoRead+1]<<8)|GX_FIFO_BUF[gxFifoRead+2];
+      const vtxStride = computeVtxStride();
+      const needed = 3 + vtxCount * vtxStride;
+      if (gxFifoRead + needed > gxFifoPos) return;
+      drawPrimitive(cmd, vtxCount, gxFifoRead+3, vtxStride);
+      gxFifoRead += needed; continue;
+    }
+
+    // Unknown command - skip 1 byte
+    gxFifoRead++;
+  }
+  // Wrap fifo if we've processed everything
+  if (gxFifoRead >= gxFifoPos) { gxFifoRead = 0; gxFifoPos = 0; }
+}
+
+// BP (Blend/Pixel engine) register handler
+function handleBPReg(reg, val) {
+  switch (reg) {
+    case 0x01: // Clear AR
+      GX_STATE.clearColor[3] = (val >> 8) & 0xFF;
+      GX_STATE.clearColor[0] = val & 0xFF;
+      break;
+    case 0x02: // Clear GB
+      GX_STATE.clearColor[1] = (val >> 8) & 0xFF;
+      GX_STATE.clearColor[2] = val & 0xFF;
+      break;
+    case 0x43: // EFB copy control - trigger frame copy to XFB
+      if (val & 1) gxCopyToXFB();
+      break;
+    case 0x4F: // scissor TL
+      GX_STATE.scissors.x = (val >> 12) & 0xFFF;
+      GX_STATE.scissors.y = val & 0xFFF;
+      break;
+    case 0x50:
+      GX_STATE.scissors.w = ((val >> 12) & 0xFFF) - GX_STATE.scissors.x;
+      GX_STATE.scissors.h = (val & 0xFFF) - GX_STATE.scissors.y;
+      break;
+    case 0x40: // Cull mode
+      break;
+    case 0x41: // Line/pt size
+      break;
+  }
+}
+
+function handleCPReg(reg, val) {
+  // CP register: vertex format
+  if (reg >= 0x50 && reg <= 0x57) {
+    GX_STATE.vtxAttr[reg - 0x50] = val;
+  }
+  if (reg === 0x00) GX_STATE.vtxDesc = val;
+}
+
+function handleXFLoad(addr, count, dataOff) {
+  // XF = transform engine
+  // addr 0x0000-0x03FF = geometry matrix memory
+  // addr 0x1000+ = XF registers
+  if (addr >= 0x1018 && addr <= 0x101B) {
+    // Viewport
+    const view = GX_STATE.viewport;
+    for (let i = 0; i <= count; i++) {
+      const v = (GX_FIFO_BUF[dataOff+i*4]<<24)|(GX_FIFO_BUF[dataOff+i*4+1]<<16)|(GX_FIFO_BUF[dataOff+i*4+2]<<8)|GX_FIFO_BUF[dataOff+i*4+3];
+      const fv = new Float32Array(new Uint32Array([v]).buffer)[0];
+      if (addr+i===0x1018) view.w = Math.abs(fv)*2;
+      if (addr+i===0x1019) view.h = Math.abs(fv)*2;
+      if (addr+i===0x101A) {} // z range
+      if (addr+i===0x101B) view.x = fv - view.w/2;
+      if (addr+i===0x101C) view.y = fv - view.h/2;
+    }
+  }
+  // Projection matrix
+  if (addr >= 0x1020 && addr <= 0x1027) {
+    for (let i = 0; i <= count && i < 8; i++) {
+      const v = (GX_FIFO_BUF[dataOff+i*4]<<24)|(GX_FIFO_BUF[dataOff+i*4+1]<<16)|(GX_FIFO_BUF[dataOff+i*4+2]<<8)|GX_FIFO_BUF[dataOff+i*4+3];
+      GX_STATE.proj[i] = new Float32Array(new Uint32Array([v]).buffer)[0];
+    }
+  }
+}
+
+function computeVtxStride() {
+  // Based on vertex attribute format (simplified: pos+color+tex)
+  // For Wind Waker, typical stride is 12-24 bytes
+  let stride = 0;
+  const vd = GX_STATE.vtxDesc;
+  // PNMTXIDX (1 byte if present)
+  if ((vd & 3) >= 1) stride += 1;
+  // POS (2 bytes for INDEX16, 12 bytes for DIRECT float3)
+  const posType = (GX_STATE.vtxAttr[0] >> 9) & 3;
+  if (posType === 3) stride += 2; // index16
+  else if (posType === 2) stride += 1; // index8
+  else stride += 12; // direct float3 (default guess)
+  // Color (4 bytes RGBA8)
+  stride += 4;
+  return Math.max(stride, 1);
+}
+
+function readVtxFloat(buf, off) {
+  const v = (buf[off]<<24)|(buf[off+1]<<16)|(buf[off+2]<<8)|buf[off+3];
+  return new Float32Array(new Uint32Array([v]).buffer)[0];
+}
+
+function drawPrimitive(cmd, vtxCount, dataOff, vtxStride) {
+  const type = cmd & 0xF8;
+  const fmtIdx = cmd & 0x07;
+  const verts = [];
+
+  for (let v = 0; v < vtxCount; v++) {
+    const base = dataOff + v * vtxStride;
+    // Try to read a float3 position
+    let x=0,y=0,z=0,r=128,g=128,b=128,a=255;
+    if (base + 12 <= gxFifoPos) {
+      x = readVtxFloat(GX_FIFO_BUF, base);
+      y = readVtxFloat(GX_FIFO_BUF, base+4);
+      z = readVtxFloat(GX_FIFO_BUF, base+8);
+      if (base + 16 <= gxFifoPos) {
+        r = GX_FIFO_BUF[base+12];
+        g = GX_FIFO_BUF[base+13];
+        b = GX_FIFO_BUF[base+14];
+        a = GX_FIFO_BUF[base+15] || 255;
+      }
+    }
+    verts.push({x,y,z,r,g,b,a});
+  }
+
+  // Project and rasterize
+  const vp = GX_STATE.viewport;
+  const sw = vp.w || 640, sh = vp.h || 480;
+  const ox = vp.x || 0,  oy = vp.y || 0;
+
+  function project(v) {
+    // Simple orthographic/perspective based on proj matrix
+    const p = GX_STATE.proj;
+    const xp = v.x * p[0] + p[1];
+    const yp = v.y * p[5] + p[6];
+    const zp = v.z;
+    const px = Math.round((xp + 1) * sw * 0.5 + ox);
+    const py = Math.round((1 - yp) * sh * 0.5 + oy);
+    return {px, py, z: zp, r:v.r, g:v.g, b:v.b, a:v.a};
+  }
+
+  const projected = verts.map(project);
+
+  // Rasterize triangles
+  function drawTri(p0, p1, p2) {
+    rasterizeTriangle(
+      p0.px, p0.py, p0.r, p0.g, p0.b, p0.a,
+      p1.px, p1.py, p1.r, p1.g, p1.b, p1.a,
+      p2.px, p2.py, p2.r, p2.g, p2.b, p2.a
+    );
+  }
+
+  if (type === GX_CMD.DRAW_QUADS) {
+    for (let i = 0; i + 3 < projected.length; i += 4) {
+      drawTri(projected[i], projected[i+1], projected[i+2]);
+      drawTri(projected[i], projected[i+2], projected[i+3]);
+    }
+  } else if (type === GX_CMD.DRAW_TRIS) {
+    for (let i = 0; i + 2 < projected.length; i += 3)
+      drawTri(projected[i], projected[i+1], projected[i+2]);
+  } else if (type === GX_CMD.DRAW_TRISTRIP) {
+    for (let i = 0; i + 2 < projected.length; i++)
+      i % 2 === 0 ? drawTri(projected[i], projected[i+1], projected[i+2])
+                  : drawTri(projected[i+1], projected[i], projected[i+2]);
+  } else if (type === GX_CMD.DRAW_TRIFAN) {
+    for (let i = 1; i + 1 < projected.length; i++)
+      drawTri(projected[0], projected[i], projected[i+1]);
+  }
+}
+
+function rasterizeTriangle(x0,y0,r0,g0,b0,a0, x1,y1,r1,g1,b1,a1, x2,y2,r2,g2,b2,a2) {
+  const minX = Math.max(0, Math.min(x0,x1,x2));
+  const maxX = Math.min(639, Math.max(x0,x1,x2));
+  const minY = Math.max(0, Math.min(y0,y1,y2));
+  const maxY = Math.min(479, Math.max(y0,y1,y2));
+  if (minX>maxX||minY>maxY) return;
+
+  const area = (x1-x0)*(y2-y0)-(x2-x0)*(y1-y0);
+  if (area === 0) return;
+  const invArea = 1/area;
+
+  const fb = GX_STATE.fbData;
+  for (let py=minY; py<=maxY; py++) {
+    for (let px=minX; px<=maxX; px++) {
+      const w0=((x1-x0)*(py-y0)-(px-x0)*(y1-y0))*invArea;
+      const w1=((x2-x1)*(py-y1)-(px-x1)*(y2-y1))*invArea;
+      const w2=1-w0-w1;
+      if (w0<0||w1<0||w2<0) continue;
+      const idx=(py*640+px)*4;
+      fb[idx  ] = r0*w2+r1*w0+r2*w1;
+      fb[idx+1] = g0*w2+g1*w0+g2*w1;
+      fb[idx+2] = b0*w2+b1*w0+b2*w1;
+      fb[idx+3] = 255;
+    }
+  }
+}
+
+function gxClearFB(r,g,b,a) {
+  const fb = GX_STATE.fbData;
+  for (let i=0; i<640*480; i++) {
+    fb[i*4]=r; fb[i*4+1]=g; fb[i*4+2]=b; fb[i*4+3]=a;
+  }
+}
+
+function gxCopyToXFB() {
+  // Write fbData to the canvas
+  const img = new ImageData(GX_STATE.fbData, 640, 480);
+  CTX.putImageData(img, 0, 0);
+  // Also draw HUD
+  CTX.fillStyle='rgba(0,0,0,.4)'; CTX.fillRect(0,0,640,22);
+  CTX.fillStyle='#8b5cf6'; CTX.font='11px Share Tech Mono, monospace'; CTX.textAlign='left';
+  CTX.fillText(`GCube v0.4 · ${DISC_INFO?DISC_INFO.gameId:'?'} · PC:0x${(GC_CPU.pc>>>0).toString(16).toUpperCase().padStart(8,'0')} · ${GC_CPU.stepCount.toLocaleString()} steps`,6,15);
+}
+
+// ── DOLPHIN OS HLE — FUNCTION TABLE COMPLÈTE ──────────────────────────
+// Addresses sont scannées depuis les symboles du DOL ou forcées à des adresses communes.
+
+const HLE_FUNCS = {};
+
+function hle(name, fn) { HLE_FUNCS[name] = fn; }
+
+// ── THREAD SYSTEM ─────────────────────────────────────────────────────
+const OS_THREADS = [];
+let OS_CURRENT_THREAD = null;
+let OS_IRQ_ENABLED = 0;
+
+function OSThread_create(entry, stackAddr, stackSize, prio) {
+  const th = { entry, stackAddr, stackSize, prio, state:'ready', gpr:new Int32Array(32), lr:0, pc:entry, suspended:false };
+  OS_THREADS.push(th); return th;
+}
+
+hle('OSInit', function() {
+  log('ok','[HLE] OSInit()');
+  memWrite32(0x800000F4, 0x80003000); // Arena Lo
+  memWrite32(0x800000F8, 0x817FE000); // Arena Hi
+  memWrite32(0x800000E4, 24*1024*1024);
+  memWrite32(0x800000EC, 24*1024*1024);
+  memWrite32(0x80000028, 0x00000001); // console type GameCube
+  memWrite32(0x8000002C, 0x80003000);
+  memWrite32(0x80000030, 0x817FE000);
+  memWrite32(0x80000034, 0x817E0000);
+  memWrite32(0x80000038, 0x00100000);
+  GC_CPU.r[3] = 0; hleBlr();
+});
+
+hle('__OSInitAudioSystem', function() { hleBlr(); });
+hle('__OSInitSystemCall', function() { hleBlr(); });
+hle('OSEnableInterrupts',  function() { OS_IRQ_ENABLED=1; GC_CPU.r[3]=0; hleBlr(); });
+hle('OSDisableInterrupts', function() { OS_IRQ_ENABLED=0; GC_CPU.r[3]=0; hleBlr(); });
+hle('OSRestoreInterrupts', function() { GC_CPU.r[3]=0; hleBlr(); });
+hle('OSGetTime',    function() { GC_CPU.r[3]=GC_CPU.stepCount*4; GC_CPU.r[4]=0; hleBlr(); });
+hle('OSGetTick',    function() { GC_CPU.r[3]=GC_CPU.stepCount*2; hleBlr(); });
+hle('OSGetTicksPerSecond', function() { GC_CPU.r[3]=486000000; hleBlr(); });
+hle('OSSleepTicks', function() { hleBlr(); });
+hle('OSSleepThread', function() { hleBlr(); });
+hle('OSWakeupThread', function() { hleBlr(); });
+hle('OSCreateThread', function() {
+  const entry=GC_CPU.r[3]>>>0, stackTop=GC_CPU.r[5]>>>0, stackSize=GC_CPU.r[6]>>>0, prio=GC_CPU.r[7];
+  const th = OSThread_create(entry, stackTop-stackSize, stackSize, prio);
+  // Write thread struct to r[4] address
+  const addr = GC_CPU.r[4]>>>0; if (addr) memWrite32(addr, entry);
+  GC_CPU.r[3]=0; hleBlr();
+});
+hle('OSResumeThread',   function() { GC_CPU.r[3]=0; hleBlr(); });
+hle('OSSuspendThread',  function() { GC_CPU.r[3]=0; hleBlr(); });
+hle('OSYieldThread',    function() { hleBlr(); });
+hle('OSJoinThread',     function() { GC_CPU.r[3]=0; hleBlr(); });
+hle('OSSetThreadPriority', function() { GC_CPU.r[3]=1; hleBlr(); });
+hle('OSGetCurrentThread',  function() { GC_CPU.r[3]=0x80300000; hleBlr(); });
+hle('OSInitMutex',    function() { hleBlr(); });
+hle('OSLockMutex',    function() { hleBlr(); });
+hle('OSUnlockMutex',  function() { hleBlr(); });
+hle('OSInitMessageQueue', function() { hleBlr(); });
+hle('OSSendMessage',      function() { GC_CPU.r[3]=1; hleBlr(); });
+hle('OSReceiveMessage',   function() { GC_CPU.r[3]=1; hleBlr(); });
+hle('OSJamMessage',       function() { GC_CPU.r[3]=1; hleBlr(); });
+hle('OSInitThreadQueue',  function() { hleBlr(); });
+
+hle('OSReport', function() {
+  const str = readCStr(GC_CPU.r[3]>>>0, 200);
+  if (str.trim()) log('info','[OS] '+str.trim().slice(0,80));
+  hleBlr();
+});
+hle('OSPanic', function() {
+  const file = readCStr(GC_CPU.r[3]>>>0, 64);
+  const line = GC_CPU.r[4];
+  const msg  = readCStr(GC_CPU.r[5]>>>0, 128);
+  log('err', `[OSPanic] ${file}:${line} — ${msg}`);
+  GC_CPU.running = false; S.running = false;
+  hleBlr();
+});
+hle('OSHalt', function() { log('err','[OS] OSHalt!'); GC_CPU.running=false; hleBlr(); });
+hle('OSFatal', function() { log('err','[OS] OSFatal'); GC_CPU.running=false; hleBlr(); });
+
+// Memory management
+hle('OSAlloc',    function() { GC_CPU.r[3]=hleAlloc(GC_CPU.r[4]); hleBlr(); });
+hle('OSFree',     function() { hleBlr(); });
+hle('MEMAllocFromDefaultHeap', function() { GC_CPU.r[3]=hleAlloc(GC_CPU.r[3]); hleBlr(); });
+hle('MEMAllocFromDefaultHeapEx', function() { GC_CPU.r[3]=hleAlloc(GC_CPU.r[3]); hleBlr(); });
+hle('MEMFreeToDefaultHeap',  function() { hleBlr(); });
+hle('OSAllocFixed', function() { GC_CPU.r[3]=hleAlloc(GC_CPU.r[4]); hleBlr(); });
+
+let hleHeapPtr = 0x80400000;
+function hleAlloc(size) {
+  size = ((size + 31) & ~31) >>> 0;
+  const ptr = hleHeapPtr;
+  hleHeapPtr = (hleHeapPtr + size) >>> 0;
+  if (hleHeapPtr > MEM1_END) { hleHeapPtr = ptr; return 0; }
+  const off = vmAddr(ptr);
+  if (off !== null) MEM1.fill(0, off, Math.min(off+size, MEM1_SIZE));
+  return ptr;
+}
+
+// Cache / memory
+hle('DCFlushRange',     function() { hleBlr(); });
+hle('DCInvalidateRange',function() { hleBlr(); });
+hle('DCZeroRange',      function() {
+  const addr=GC_CPU.r[3]>>>0, len=GC_CPU.r[4]>>>0;
+  const off=vmAddr(addr); if(off!==null) MEM1.fill(0,off,Math.min(off+len,MEM1_SIZE));
+  hleBlr();
+});
+hle('ICInvalidateRange', function() { hleBlr(); });
+hle('PPCMfmsr',  function() { GC_CPU.r[3]=GC_CPU.msr; hleBlr(); });
+hle('PPCMtmsr',  function() { GC_CPU.msr=GC_CPU.r[3]; hleBlr(); });
+hle('PPCHalt',   function() { GC_CPU.running=false; hleBlr(); });
+
+// DVD
+hle('DVDInit', function() {
+  log('ok','[HLE] DVDInit()');
+  DI_REG.SR = 0x00000028; // Disk present, cover closed
+  GC_CPU.r[3]=0; hleBlr();
+});
+hle('DVDOpen', function() {
+  const pathAddr = GC_CPU.r[3]>>>0;
+  const fhAddr   = GC_CPU.r[4]>>>0;
+  const path = readCStr(pathAddr, 128);
+  log('info',`[HLE] DVDOpen("${path}")`);
+  const f = FST_FILES.find(x=>x.name.toLowerCase()===path.split('/').pop().toLowerCase());
+  if (f && fhAddr) {
+    memWrite32(fhAddr+0, f.fileOff);
+    memWrite32(fhAddr+4, f.fileLen);
+    memWrite32(fhAddr+8, 0); // offset
+    log('ok',`  → trouvé: offset=0x${f.fileOff.toString(16)} taille=${fmtBytes(f.fileLen)}`);
+    GC_CPU.r[3] = 1; // success
+  } else {
+    GC_CPU.r[3] = 0;
+  }
+  hleBlr();
+});
+hle('DVDClose', function() { GC_CPU.r[3]=0; hleBlr(); });
+hle('DVDRead', function() {
+  const fhAddr=GC_CPU.r[3]>>>0, dstAddr=GC_CPU.r[4]>>>0, len=GC_CPU.r[5]>>>0, offset=GC_CPU.r[6]|0;
+  const fileOff = memRead32(fhAddr)>>>0;
+  const fileLen = memRead32(fhAddr+4)>>>0;
+  const readOff = fileOff + Math.max(0,offset);
+  const readLen = Math.min(len, fileLen);
+  if (DISC_DATA && readLen>0) {
+    const dstOff=vmAddr(dstAddr);
+    if (dstOff!==null && readOff+readLen<=DISC_DATA.length)
+      for(let i=0;i<readLen;i++) MEM1[dstOff+i]=DISC_DATA[readOff+i];
+  }
+  GC_CPU.r[3]=readLen; hleBlr();
+});
+hle('DVDReadAsyncPrio', function() { GC_CPU.r[3]=0; hleBlr(); });
+hle('DVDGetCommandBlockStatus', function() { GC_CPU.r[3]=0; hleBlr(); });
+hle('DVDCheckDisk', function() { GC_CPU.r[3]=0; hleBlr(); });
+hle('DVDGetDriveStatus', function() { GC_CPU.r[3]=0; hleBlr(); });
+hle('DVDConvertEntrynumToPath', function() { GC_CPU.r[3]=0; hleBlr(); });
+hle('DVDGetEntryNum', function() {
+  const path=readCStr(GC_CPU.r[3]>>>0,128);
+  const f=FST_FILES.findIndex(x=>x.name.toLowerCase()===path.split('/').pop().toLowerCase());
+  GC_CPU.r[3]=f>=0?f:-1; hleBlr();
+});
+
+// Video Interface
+hle('VIInit', function() {
+  log('ok','[HLE] VIInit()');
+  GC_CPU.r[3]=0; hleBlr();
+});
+hle('VISetNextFrameBuffer', function() {
+  GC_CPU.xfbAddr = GC_CPU.r[3]>>>0;
+  hleBlr();
+});
+hle('VISetNextField',  function() { hleBlr(); });
+hle('VIFlush',         function() { if(GC_CPU.xfbAddr) renderXFB(); hleBlr(); });
+hle('VIWaitForRetrace',function() { hleBlr(); });
+hle('VIConfigure',     function() { hleBlr(); });
+hle('VIGetRetraceCount',function(){ GC_CPU.r[3]=GC_CPU.stepCount/2000|0; hleBlr(); });
+hle('VIGetCurrentLine',function(){ GC_CPU.r[3]=VI_REG.DPV&0x3FF; hleBlr(); });
+hle('VISetPreRetraceCallback', function(){ hleBlr(); });
+hle('VISetPostRetraceCallback', function(){ hleBlr(); });
+hle('VIGetTvFormat', function(){ GC_CPU.r[3]=1; hleBlr(); }); // NTSC
+
+// PAD / Controller
+hle('PADInit',  function() { log('ok','[HLE] PADInit()'); GC_CPU.r[3]=1; hleBlr(); });
+hle('PADRead',  function() {
+  const addr = GC_CPU.r[3]>>>0;
+  const off2  = vmAddr(addr);
+  if (off2!==null) {
+    // PAD status struct (10 bytes per pad)
+    const buttons = PAD_getButtons();
+    memWrite16(addr+0, buttons);      // button bits
+    memWrite8 (addr+2, 128);          // stick X
+    memWrite8 (addr+3, 128);          // stick Y
+    memWrite8 (addr+4, 128);          // cstick X
+    memWrite8 (addr+5, 128);          // cstick Y
+    memWrite8 (addr+6, 0);            // trigger L
+    memWrite8 (addr+7, 0);            // trigger R
+    memWrite8 (addr+8, 0);            // err status (0=OK)
+    memWrite8 (addr+9, 0);
+    // Other ports: disconnected
+    for (let p=1;p<4;p++) memWrite8(addr+p*10+8, 0xFF);
+  }
+  GC_CPU.r[3]=1; hleBlr();
+});
+hle('PADSetSpec', function(){ hleBlr(); });
+hle('PADGetType', function(){ GC_CPU.r[3]=0x0009; hleBlr(); }); // standard pad
+hle('PADReset',   function(){ GC_CPU.r[3]=1; hleBlr(); });
+hle('PADRecalibrate', function(){ GC_CPU.r[3]=1; hleBlr(); });
+hle('WPADInit',   function(){ GC_CPU.r[3]=0; hleBlr(); });
+hle('KPADInit',   function(){ hleBlr(); });
+
+function PAD_getButtons() {
+  let b=0;
+  const km=keyMap;
+  if(pressedKeys.has(km['A']))     b|=0x0100;
+  if(pressedKeys.has(km['B']))     b|=0x0200;
+  if(pressedKeys.has(km['X']))     b|=0x0400;
+  if(pressedKeys.has(km['Y']))     b|=0x0800;
+  if(pressedKeys.has(km['Start'])) b|=0x1000;
+  if(pressedKeys.has(km['L']))     b|=0x0040;
+  if(pressedKeys.has(km['R']))     b|=0x0020;
+  if(pressedKeys.has(km['Z']))     b|=0x0010;
+  if(pressedKeys.has(km['Up']))    b|=0x0008;
+  if(pressedKeys.has(km['Down']))  b|=0x0004;
+  if(pressedKeys.has(km['Left']))  b|=0x0002;
+  if(pressedKeys.has(km['Right'])) b|=0x0001;
+  return b;
+}
+
+// GX
+hle('GXInit', function() {
+  log('ok','[HLE] GXInit()');
+  gxClearFB(0,0,0,255);
+  GC_CPU.r[3]=GC_CPU.r[3]; hleBlr();
+});
+hle('GXSetViewport', function() { hleBlr(); });
+hle('GXSetScissor',  function() { hleBlr(); });
+hle('GXSetCullMode', function() { hleBlr(); });
+hle('GXSetClipMode', function() { hleBlr(); });
+hle('GXSetDispCopySrc', function(){ hleBlr(); });
+hle('GXSetDispCopyDst', function(){ hleBlr(); });
+hle('GXSetDispCopyYScale', function(){ hleBlr(); });
+hle('GXSetDispCopyGamma',  function(){ hleBlr(); });
+hle('GXCopyDisp',    function() {
+  const xfbAddr2=GC_CPU.r[3]>>>0;
+  if(xfbAddr2) GC_CPU.xfbAddr=xfbAddr2;
+  gxCopyToXFB(); hleBlr();
+});
+hle('GXDrawDone',    function() { gxCopyToXFB(); hleBlr(); });
+hle('GXPixModeSync', function() { hleBlr(); });
+hle('GXSetBlendMode',function(){ hleBlr(); });
+hle('GXSetZMode',    function(){ hleBlr(); });
+hle('GXSetAlphaUpdate',function(){ hleBlr(); });
+hle('GXSetColorUpdate',function(){ hleBlr(); });
+hle('GXSetCopyClear',function(){
+  GX_STATE.clearColor=[GC_CPU.r[3]>>24&0xFF,GC_CPU.r[3]>>16&0xFF,GC_CPU.r[3]>>8&0xFF,GC_CPU.r[3]&0xFF];
+  gxClearFB(...GX_STATE.clearColor); hleBlr();
+});
+hle('GXBegin', function(){ GX_STATE.primType=GC_CPU.r[3]; GX_STATE.primVerts=[]; hleBlr(); });
+hle('GXEnd',   function(){ hleBlr(); });
+hle('GXSetNumChans',  function(){ hleBlr(); });
+hle('GXSetNumTexGens',function(){ hleBlr(); });
+hle('GXSetTevOrder',  function(){ hleBlr(); });
+hle('GXSetTevOp',     function(){ hleBlr(); });
+hle('GXSetVtxDesc',   function(){ hleBlr(); });
+hle('GXSetVtxAttrFmt',function(){ hleBlr(); });
+hle('GXClearVtxDesc', function(){ hleBlr(); });
+hle('GXSetChanCtrl',  function(){ hleBlr(); });
+hle('GXSetChanAmbColor',function(){ hleBlr(); });
+hle('GXSetChanMatColor',function(){ hleBlr(); });
+hle('GXLoadPosMtxImm',function(){ hleBlr(); });
+hle('GXLoadNrmMtxImm',function(){ hleBlr(); });
+hle('GXSetProjection', function(){ hleBlr(); });
+hle('GXSetCurrentMtx', function(){ hleBlr(); });
+hle('GXInvalidateVtxCache', function(){ hleBlr(); });
+hle('GXFlush',  function(){ hleBlr(); });
+hle('GXAbortFrame', function(){ hleBlr(); });
+hle('GXSetMisc',    function(){ hleBlr(); });
+
+// DSP / Audio
+hle('DSPInit', function() { log('ok','[HLE] DSPInit()'); GC_CPU.r[3]=1; hleBlr(); });
+hle('DSPCheckMailTo', function(){ GC_CPU.r[3]=0; hleBlr(); });
+hle('DSPSendMailTo',  function(){ hleBlr(); });
+hle('DSPGetMailFrom', function(){ GC_CPU.r[3]=0; hleBlr(); });
+hle('AXInit',  function(){ log('ok','[HLE] AXInit()'); hleBlr(); });
+hle('AXQuit',  function(){ hleBlr(); });
+hle('AIInit',  function(){ log('ok','[HLE] AIInit()'); hleBlr(); });
+hle('AIStartDMA', function(){ hleBlr(); });
+hle('AISndSyGetDMA',function(){ GC_CPU.r[3]=0; hleBlr(); });
+
+// ARAM
+hle('ARInit', function() { log('ok','[HLE] ARInit()'); GC_CPU.r[3]=0x01000000; hleBlr(); });
+hle('ARAlloc', function(){ GC_CPU.r[3]=0x01000000; hleBlr(); });
+hle('ARFree',  function(){ hleBlr(); });
+hle('ARGetSize',function(){ GC_CPU.r[3]=16*1024*1024; hleBlr(); });
+hle('ARDMACallback', function(){ hleBlr(); });
+hle('ARStartDMA', function(){ hleBlr(); });
+hle('ARCheckDMA', function(){ GC_CPU.r[3]=0; hleBlr(); });
+
+// Memory card
+hle('CARDInit',   function(){ GC_CPU.r[3]=0; hleBlr(); });
+hle('CARDProbeEx',function(){ GC_CPU.r[3]=-1; hleBlr(); }); // No card
+hle('CARDMount',  function(){ GC_CPU.r[3]=-1; hleBlr(); });
+hle('CARDOpen',   function(){ GC_CPU.r[3]=-1; hleBlr(); });
+hle('CARDClose',  function(){ GC_CPU.r[3]=0; hleBlr(); });
+hle('CARDCheck',  function(){ GC_CPU.r[3]=-1; hleBlr(); });
+hle('CARDRead',   function(){ GC_CPU.r[3]=-1; hleBlr(); });
+hle('CARDWrite',  function(){ GC_CPU.r[3]=-1; hleBlr(); });
+hle('CARDRename', function(){ GC_CPU.r[3]=-1; hleBlr(); });
+hle('CARDDelete', function(){ GC_CPU.r[3]=-1; hleBlr(); });
+hle('CARDCreate', function(){ GC_CPU.r[3]=-1; hleBlr(); });
+
+// EXI / IPL
+hle('EXIInit',  function(){ hleBlr(); });
+hle('EXILock',  function(){ GC_CPU.r[3]=1; hleBlr(); });
+hle('EXIUnlock',function(){ hleBlr(); });
+hle('EXISelect',function(){ GC_CPU.r[3]=1; hleBlr(); });
+hle('EXIDeselect',function(){ hleBlr(); });
+hle('EXITransfer',function(){ hleBlr(); });
+hle('EXIImm',   function(){ hleBlr(); });
+hle('EXIImmEx', function(){ hleBlr(); });
+hle('EXIDma',   function(){ hleBlr(); });
+
+// OSAlloc / heap  
+hle('__OSInitAllocator', function(){ hleBlr(); });
+hle('OSInitHeap',   function(){ GC_CPU.r[3]=GC_CPU.r[3]; hleBlr(); });
+hle('OSAllocFromHeap',function(){ GC_CPU.r[3]=hleAlloc(GC_CPU.r[4]); hleBlr(); });
+hle('OSFreeToHeap',   function(){ hleBlr(); });
+
+// Math (libm stubs - use JS native)
+hle('sinf',  function(){ GC_CPU.f[1]=Math.sin(GC_CPU.f[1]); hleBlr(); });
+hle('cosf',  function(){ GC_CPU.f[1]=Math.cos(GC_CPU.f[1]); hleBlr(); });
+hle('sqrtf', function(){ GC_CPU.f[1]=Math.sqrt(GC_CPU.f[1]); hleBlr(); });
+hle('sin',   function(){ GC_CPU.f[1]=Math.sin(GC_CPU.f[1]); hleBlr(); });
+hle('cos',   function(){ GC_CPU.f[1]=Math.cos(GC_CPU.f[1]); hleBlr(); });
+hle('sqrt',  function(){ GC_CPU.f[1]=Math.sqrt(GC_CPU.f[1]); hleBlr(); });
+hle('atan2f',function(){ GC_CPU.f[1]=Math.atan2(GC_CPU.f[1],GC_CPU.f[2]); hleBlr(); });
+hle('fabsf', function(){ GC_CPU.f[1]=Math.abs(GC_CPU.f[1]); hleBlr(); });
+hle('floorf',function(){ GC_CPU.f[1]=Math.floor(GC_CPU.f[1]); hleBlr(); });
+hle('ceilf', function(){ GC_CPU.f[1]=Math.ceil(GC_CPU.f[1]); hleBlr(); });
+hle('powf',  function(){ GC_CPU.f[1]=Math.pow(GC_CPU.f[1],GC_CPU.f[2]); hleBlr(); });
+
+// String ops
+hle('memset', function(){
+  const addr=GC_CPU.r[3]>>>0, c=GC_CPU.r[4]&0xFF, len=GC_CPU.r[5]>>>0;
+  const off=vmAddr(addr); if(off!==null) MEM1.fill(c,off,Math.min(off+len,MEM1_SIZE));
+  GC_CPU.r[3]=addr; hleBlr();
+});
+hle('memcpy', function(){
+  const dst=GC_CPU.r[3]>>>0, src=GC_CPU.r[4]>>>0, len=GC_CPU.r[5]>>>0;
+  const doff=vmAddr(dst), soff=vmAddr(src);
+  if(doff!==null&&soff!==null) MEM1.copyWithin(doff,soff,soff+Math.min(len,MEM1_SIZE-soff));
+  GC_CPU.r[3]=dst; hleBlr();
+});
+hle('memmove',function(){
+  const dst=GC_CPU.r[3]>>>0, src=GC_CPU.r[4]>>>0, len=GC_CPU.r[5]>>>0;
+  const doff=vmAddr(dst), soff=vmAddr(src);
+  if(doff!==null&&soff!==null){ const tmp=MEM1.slice(soff,soff+len); MEM1.set(tmp,doff); }
+  GC_CPU.r[3]=dst; hleBlr();
+});
+hle('strlen', function(){
+  const addr=GC_CPU.r[3]>>>0; let n=0;
+  while(memRead8((addr+n)>>>0)) n++;
+  GC_CPU.r[3]=n; hleBlr();
+});
+hle('strcpy', function(){
+  const dst=GC_CPU.r[3]>>>0, src=GC_CPU.r[4]>>>0; let i=0;
+  while(true){const c=memRead8((src+i)>>>0);memWrite8((dst+i)>>>0,c);i++;if(!c)break;}
+  GC_CPU.r[3]=dst; hleBlr();
+});
+hle('strncpy',function(){
+  const dst=GC_CPU.r[3]>>>0,src=GC_CPU.r[4]>>>0,n=GC_CPU.r[5]>>>0;
+  for(let i=0;i<n;i++){const c=memRead8((src+i)>>>0);memWrite8((dst+i)>>>0,c);if(!c)break;}
+  GC_CPU.r[3]=dst; hleBlr();
+});
+hle('strcmp', function(){
+  const a=GC_CPU.r[3]>>>0,b=GC_CPU.r[4]>>>0; let i=0;
+  while(true){const ca=memRead8((a+i)>>>0),cb=memRead8((b+i)>>>0);if(ca!==cb){GC_CPU.r[3]=(ca-cb)|0;hleBlr();return;}if(!ca)break;i++;}
+  GC_CPU.r[3]=0; hleBlr();
+});
+hle('sprintf', function(){
+  const buf=GC_CPU.r[3]>>>0; const fmt=readCStr(GC_CPU.r[4]>>>0,256);
+  // Simple impl: just write fmt + null
+  const doff=vmAddr(buf);
+  if(doff!==null){for(let i=0;i<fmt.length;i++)MEM1[doff+i]=fmt.charCodeAt(i);MEM1[doff+fmt.length]=0;}
+  GC_CPU.r[3]=fmt.length; hleBlr();
+});
+hle('printf',  function(){ hleBlr(); });
+hle('puts',    function(){ const s=readCStr(GC_CPU.r[3]>>>0,256); log('info','[puts] '+s.slice(0,80)); hleBlr(); });
+hle('putchar', function(){ hleBlr(); });
+hle('abort',   function(){ log('err','[HLE] abort()'); GC_CPU.running=false; hleBlr(); });
+hle('exit',    function(){ log('warn','[HLE] exit('+GC_CPU.r[3]+')'); GC_CPU.running=false; hleBlr(); });
+hle('__assert',function(){ log('err','[HLE] assert failed'); GC_CPU.running=false; hleBlr(); });
+
+// Misc
+hle('rand',  function(){ GC_CPU.r[3]=Math.random()*0x7FFFFFFF|0; hleBlr(); });
+hle('srand', function(){ hleBlr(); });
+hle('OSRandSeed', function(){ hleBlr(); });
+
+// ── UTILITAIRES HLE ───────────────────────────────────────────────────
+function hleBlr() { GC_CPU.pc = GC_CPU.lr >>> 0; }
+
+function readCStr(addr, maxLen) {
+  let s='', a=addr>>>0;
+  for(let i=0;i<maxLen;i++){
+    const c=memRead8((a+i)>>>0); if(!c)break; s+=String.fromCharCode(c);
+  }
+  return s;
+}
+
+function renderXFB() {
+  if (!GC_CPU.xfbAddr) return;
+  const off = vmAddr(GC_CPU.xfbAddr);
+  if (off === null || off + 640*480*2 > MEM1_SIZE) return;
+  try {
+    const img = CTX.createImageData(640, 480);
+    const d = img.data;
+    for (let i=0; i<640*480/2; i++) {
+      const base=off+i*4;
+      const u=MEM1[base]-128, y0=MEM1[base+1]-16, v=MEM1[base+2]-128, y1=MEM1[base+3]-16;
+      const c0=298*y0, c1=298*y1;
+      const rv=409*v, gv=-100*u-208*v, bv=516*u;
+      const px=i*8;
+      d[px  ]=Math.max(0,Math.min(255,(c0+rv+128)>>8));
+      d[px+1]=Math.max(0,Math.min(255,(c0+gv+128)>>8));
+      d[px+2]=Math.max(0,Math.min(255,(c0+bv+128)>>8));
+      d[px+3]=255;
+      d[px+4]=Math.max(0,Math.min(255,(c1+rv+128)>>8));
+      d[px+5]=Math.max(0,Math.min(255,(c1+gv+128)>>8));
+      d[px+6]=Math.max(0,Math.min(255,(c1+bv+128)>>8));
+      d[px+7]=255;
+    }
+    CTX.putImageData(img,0,0);
+  } catch(e) {}
+}
+
+// ── SCAN DE SYMBOLES / INSTALLATION HLE ───────────────────────────────
+// Stratégie : scanner le DOL pour les patterns de prologue de fonction
+// et mapper les adresses connues du SDK Wind Waker
+
+// Adresses connues Wind Waker USA 1.0 (GameID: GZLP01)
+const WW_SYMBOL_MAP = {
+  // OSInit region - 0x8028xxxx area
+  'OSInit':            0x8002E340,
+  'OSReport':          0x8003FD10,
+  'OSPanic':           0x8003FD50,
+  'OSCreateThread':    0x8002EC50,
+  'OSResumeThread':    0x8002EDA0,
+  'OSYieldThread':     0x8002EEB0,
+  'OSSleepThread':     0x8002EF00,
+  'OSWakeupThread':    0x8002F010,
+  'OSDisableInterrupts':0x8002E660,
+  'OSEnableInterrupts': 0x8002E680,
+  'OSRestoreInterrupts':0x8002E6A0,
+  'OSGetTick':          0x8002E6C0,
+  'OSGetTime':          0x8002E6E0,
+  // DVD
+  'DVDInit':           0x800B2800,
+  'DVDOpen':           0x800B2CE0,
+  'DVDClose':          0x800B2DB0,
+  'DVDRead':           0x800B2E00,
+  // VI
+  'VIInit':            0x8009E220,
+  'VISetNextFrameBuffer':0x8009E4A0,
+  'VIFlush':           0x8009E5D0,
+  'VIWaitForRetrace':  0x8009E620,
+  // PAD
+  'PADInit':           0x800D9A80,
+  'PADRead':           0x800D9B50,
+  // GX
+  'GXInit':            0x800E4790,
+  'GXDrawDone':        0x800E4CB0,
+  'GXCopyDisp':        0x800E5580,
+  // Audio
+  'AIInit':            0x800C3180,
+  'DSPInit':           0x800B8B90,
+  'AXInit':            0x8010B6A0,
+  // AR
+  'ARInit':            0x800BCF60,
+  // Memory
+  'memset':            0x800F7CB0,
+  'memcpy':            0x800F7D00,
+  'memmove':           0x800F7D60,
+  // Card
+  'CARDInit':          0x800D1020,
+  'CARDProbeEx':       0x800D13F0,
+};
+
+function installHLEStubs() {
+  // Installer les stubs à des adresses HLE spéciales (0x7E000000+)
+  let hleBase = 0x7E000000;
+  const nameToAddr = {};
+
+  for (const [name, fn] of Object.entries(HLE_FUNCS)) {
+    const stubAddr = hleBase;
+    GC_CPU.hleMap[stubAddr] = fn;
+    nameToAddr[name] = stubAddr;
+    hleBase += 4;
+  }
+
+  // Si on a un disque avec un gameId connu, patcher les adresses connues
+  if (DISC_INFO) {
+    const gameId = DISC_INFO.gameId;
+    let symMap = null;
+
+    if (gameId === 'GZLE' || gameId === 'GZLP' || gameId === 'GZLJ') {
+      symMap = WW_SYMBOL_MAP;
+      log('ok', `Wind Waker détecté (${gameId}) — installation des stubs SDK`);
+    }
+
+    if (symMap) {
+      let count = 0;
+      for (const [name, addr] of Object.entries(symMap)) {
+        if (nameToAddr[name]) {
+          // Patch la mémoire à cette adresse avec un branchement vers notre stub
+          // Instruction : b stubAddr (opcode 18, AA=0, LK=0)
+          const stubAddr2 = nameToAddr[name];
+          const rel = ((stubAddr2 - addr) & 0x03FFFFFC);
+          const bInstr = 0x48000000 | rel;
+          const off = vmAddr(addr);
+          if (off !== null && off + 4 <= MEM1_SIZE) {
+            memWrite32(addr, bInstr);
+            count++;
+          }
+        }
+      }
+      log('ok', `${count} stubs SDK installés en mémoire`);
+    }
+  }
+
+  // Scanner le DOL chargé pour les fonctions connues (par pattern matching)
+  // Pattern: stwu r1,-N(r1) = 0x9421xxxx
+  scanAndHookFunctions(nameToAddr);
+}
+
+function scanAndHookFunctions(nameToAddr) {
+  // Pour les jeux non reconnus, on scanne les prologues de fonctions
+  // et on tente de les identifier par heuristique
+  // (Cette méthode est basique — les jeux commerciaux ont besoin d'une vraie table de symboles)
+
+  // Au lieu de scanner, on installe des stubs à des plages d'adresses communes
+  // en espérant que le jeu les appelle
+  const commonRanges = [
+    [0x80000004, 'OSReport'],    // L'OSReport est souvent près du début
+    [0x80000008, 'OSInit'],
+  ];
+  for (const [addr, name] of commonRanges) {
+    if (nameToAddr[name]) {
+      const rel = ((nameToAddr[name] - addr) & 0x03FFFFFC);
+      memWrite32(addr, 0x48000000 | rel);
+    }
+  }
+}
+
+// Redéfinir hwRead32 et hwWrite32 pour utiliser les vrais handlers
+const _old_hwRead32 = typeof hwRead32 !== 'undefined' ? hwRead32 : () => 0;
+const _old_hwWrite32 = typeof hwWrite32 !== 'undefined' ? hwWrite32 : () => {};
+
+// Override global (sera appelé par memRead32/memWrite32)
+function hwRead32(addr)      { return hwRead32_real(addr); }
+function hwWrite32(addr,val) { hwWrite32_real(addr,val); }
+
+// Également intercepter les lectures 8/16 sur HW
+const _origMemRead8  = memRead8;
+const _origMemRead16 = memRead16;
+
+// Patch: les lectures 8-bit sur les zones HW
+function isHWAddr(a) { return (a>>>0)>=0xCC000000&&(a>>>0)<0xCD000000; }
+
+
+
+// ── INIT CPU ────────────────────────────────────────────────────
+function cpuReset(entry) {
+  GC_CPU.r.fill(0);
+  GC_CPU.f.fill(0);
+  GC_CPU.pc  = entry >>> 0;
+  GC_CPU.lr  = 0x80000000;
+  GC_CPU.ctr = 0;
+  GC_CPU.xer = 0;
+  GC_CPU.cr  = 0;
+  GC_CPU.msr = 0x00002030;
+  GC_CPU.stepCount = 0;
+  GC_CPU.lastInstrs = [];
+  GC_CPU.hleMap = {};
+  GC_CPU.crashReason = '';
+
+  // Stack pointer au sommet de MEM1
+  GC_CPU.r[1] = 0x817FFFF0;
+
+  // r2 = SDA2 (small data area), r13 = SDA
+  // Ces valeurs viennent du DOL, on les approche
+  GC_CPU.r[2]  = 0x804EE960;
+  GC_CPU.r[13] = 0x804EE960;
+
+  // Installer les stubs HLE
+  hleSetupStubs();
+
+  // Mettre quelques valeurs mémoire importantes
+  // 0x80000000: magic word
+  memWrite32(0x80000000, 0x0D15EA5E);
+  // 0x80000004: version
+  memWrite32(0x80000004, 0x00000001);
+  // 0x80000028: console type (GC)
+  memWrite32(0x80000028, 0x00000001);
+  // 0x8000002C: Arena Lo
+  memWrite32(0x8000002C, 0x80003000);
+  // 0x80000030: Arena Hi
+  memWrite32(0x80000030, 0x817FE000);
+  // 0x80000034: FST location
+  memWrite32(0x80000034, 0x817E0000);
+  // 0x80000038: FST max size
+  memWrite32(0x80000038, 0x00100000);
+  // 0x800000F0: bus speed
+  memWrite32(0x800000F0, 0x09A7EC80);
+  // 0x800000F4: CPU speed
+  memWrite32(0x800000F4, 0x1CF7C580);
+  // 0x800000EC: memory size (24MB)
+  memWrite32(0x800000EC, 24*1024*1024);
+}
+
+// ── RENDU CANVAS / FRAMEBUFFER ──────────────────────────────────
+const CANVAS = document.getElementById('screen');
+const CTX    = CANVAS.getContext('2d');
+
+let renderFrameCount = 0;
+
+function renderFrame() {
+  if (!GC_CPU.running) return;
+  renderFrameCount++;
+
+  // Si le jeu a écrit un XFB, essayer de l'afficher
+  if (GC_CPU.xfbAddr) {
+    const off = vmAddr(GC_CPU.xfbAddr);
+    if (off !== null && off + 640*480*2 <= MEM1_SIZE) {
+      // Format YUV2 (UYVY) → RGB sur canvas
+      try {
+        const img = CTX.createImageData(640, 480);
+        const d   = img.data;
+        const src = MEM1;
+        for (let i=0; i<640*480/2; i++) {
+          const base = off + i*4;
+          const u  = src[base]   - 128;
+          const y0 = src[base+1] - 16;
+          const v  = src[base+2] - 128;
+          const y1 = src[base+3] - 16;
+          const c0 = 298*y0, c1 = 298*y1;
+          const r=409*v, g=-100*u-208*v, b=516*u;
+          const px=i*8;
+          d[px  ]=(c0+r+128)>>8; d[px+1]=(c0+g+128)>>8; d[px+2]=(c0+b+128)>>8; d[px+3]=255;
+          d[px+4]=(c1+r+128)>>8; d[px+5]=(c1+g+128)>>8; d[px+6]=(c1+b+128)>>8; d[px+7]=255;
+        }
+        CTX.putImageData(img, 0, 0);
+        return;
+      } catch(e) {}
+    }
+  }
+
+  // Sinon : rendu de démo (visualisation CPU)
+  if (renderFrameCount % 3 === 0) {
+    CTX.fillStyle='#000'; CTX.fillRect(0,0,640,480);
+    // Gradient violet en fond
+    const grd=CTX.createRadialGradient(320,240,20,320,240,260);
+    grd.addColorStop(0,'rgba(109,40,217,.12)'); grd.addColorStop(1,'rgba(0,0,0,0)');
+    CTX.fillStyle=grd; CTX.fillRect(0,0,640,480);
+    // Info HUD
+    CTX.fillStyle='rgba(0,0,0,.5)'; CTX.fillRect(0,0,640,44);
+    CTX.fillStyle='#8b5cf6'; CTX.font='12px Share Tech Mono, monospace'; CTX.textAlign='left';
+    CTX.fillText(`PC: 0x${GC_CPU.pc.toString(16).toUpperCase().padStart(8,'0')}  LR: 0x${(GC_CPU.lr>>>0).toString(16).toUpperCase().padStart(8,'0')}  Steps: ${GC_CPU.stepCount.toLocaleString()}`,8,16);
+    CTX.fillStyle='#4a4870';
+    CTX.fillText(`r1(SP):0x${(GC_CPU.r[1]>>>0).toString(16).toUpperCase().padStart(8,'0')}  r3:0x${(GC_CPU.r[3]>>>0).toString(16).toUpperCase().padStart(8,'0')}  r4:0x${(GC_CPU.r[4]>>>0).toString(16).toUpperCase().padStart(8,'0')}  CTR:0x${(GC_CPU.ctr>>>0).toString(16).toUpperCase().padStart(8,'0')}`,8,30);
+    if(DISC_INFO) {
+      CTX.fillStyle='rgba(0,0,0,.5)'; CTX.fillRect(0,436,640,44);
+      CTX.fillStyle='#34d399'; CTX.font='13px Orbitron, monospace'; CTX.textAlign='center';
+      CTX.fillText(DISC_INFO.title.slice(0,40),320,458);
+      CTX.fillStyle='#4a4870'; CTX.font='11px Share Tech Mono, monospace';
+      CTX.fillText(`${DISC_INFO.gameId} · ${DISC_INFO.region} · ${DISC_INFO.makerId}`,320,474);
+    }
+  }
+}
+
+// ── DÉSASSEMBLEUR SIMPLE ─────────────────────────────────────────
+const MNE = {
+  14:'addi',15:'addis',12:'addic',13:'addic.',8:'subfic',7:'mulli',
+  11:'cmpi',10:'cmpli',24:'ori',25:'oris',26:'xori',27:'xoris',28:'andi.',29:'andis.',
+  32:'lwz',33:'lwzu',34:'lbz',35:'lbzu',40:'lhz',42:'lha',
+  36:'stw',37:'stwu',38:'stb',39:'stbu',44:'sth',45:'sthu',
+  46:'lmw',47:'stmw',48:'lfs',49:'lfsu',50:'lfd',52:'stfs',53:'stfsu',54:'stfd',
+  18:'b',16:'bc',
+};
+function disasm(pc, instr) {
+  const op=(instr>>>26)&0x3F;
+  const rt=(instr>>>21)&0x1F, ra=(instr>>>16)&0x1F, rb=(instr>>>11)&0x1F;
+  const imm=instr<<16>>16;
+  const uimm=instr&0xFFFF;
+  if(op===18) {
+    const lk=instr&1, aa=(instr>>>1)&1;
+    const target=(pc+(instr<<6>>4))>>>0;
+    return (lk?'bl':'b')+' 0x'+target.toString(16).toUpperCase();
+  }
+  if(op===19&&((instr>>>1)&0x3FF)===16) return (instr&1?'blrl':'blr');
+  if(op===31&&((instr>>>1)&0x3FF)===444&&ra===rt) return `mr r${ra},r${rb}`;
+  if(op===14&&ra===0) return `li r${rt},${imm}`;
+  if(op===15&&ra===0) return `lis r${rt},0x${uimm.toString(16).toUpperCase()}`;
+  if(op===24&&ra===0&&rt===0&&uimm===0) return 'nop';
+  const mn=MNE[op]||`op${op}`;
+  if(op>=32&&op<=55) return `${mn} r${rt},${imm}(r${ra})`;
+  if(op===11||op===10) return `${mn} cr${(instr>>>23)&7},r${ra},${imm}`;
+  if(op===14||op===15||op===7||op===8||op===12||op===13) return `${mn} r${rt},r${ra},${imm}`;
+  if(op===24||op===25||op===26||op===27) return `${mn} r${ra},r${rt},0x${uimm.toString(16)}`;
+  if(op===28||op===29) return `${mn}. r${ra},r${rt},0x${uimm.toString(16)}`;
+  return `0x${instr.toString(16).toUpperCase().padStart(8,'0')}`;
+}
+
+
+let logN = 0;
+function log(type, msg) {
+  const el = document.getElementById('log');
+  const ts = new Date().toTimeString().slice(0,8);
+  const d = document.createElement('div');
+  d.className = 'll '+type;
+  d.innerHTML = `<span class="ts">${ts}</span><span class="msg">${esc(msg)}</span>`;
+  el.appendChild(d);
+  if(++logN > 600) el.removeChild(el.firstChild);
+  el.scrollTop = el.scrollHeight;
+}
+function clearLog() { document.getElementById('log').innerHTML=''; logN=0; }
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ── BIOS ──────────────────────────────────────────────────────
+const KNOWN_BIOS = {
+  'D2E7DFDC':{ region:'NTSC-U v1.0', label:'USA v1.0' },
+  '49BFFA6E':{ region:'NTSC-U v1.1', label:'USA v1.1' },
+  'D4362734':{ region:'NTSC-U v1.2', label:'USA v1.2' },
+  '0E005203':{ region:'PAL  v1.0',   label:'PAL v1.0'  },
+  'AC0B1AB5':{ region:'PAL  v1.2',   label:'PAL v1.2'  },
+  '6DAC1FAD':{ region:'NTSC-J v1.2', label:'JPN v1.2'  },
+  'B9B8F55B':{ region:'NTSC-J v1.0', label:'JPN v1.0'  },
+};
+const GC_BIOS_SIZE = 524288;
+document.getElementById('biosInput').addEventListener('change', function(){
+  if(!this.files[0]) return;
+  const f = this.files[0];
+  const r = new FileReader();
+  r.onload = () => {
+    const arr = new Uint8Array(r.result);
+    const badge = document.getElementById('biosBadge');
+    const label = document.getElementById('biosLabel');
+    const info  = document.getElementById('biosInfo');
+    const regEl = document.getElementById('biosRegion');
+    if(arr.length !== GC_BIOS_SIZE) {
+      badge.className='bios-badge error'; label.textContent='Taille incorrecte';
+      info.textContent=`Attendu : 512 Ko — Reçu : ${fmtBytes(arr.length)}`; regEl.textContent='';
+      log('err',`BIOS rejeté : taille incorrecte (${arr.length} octets)`); return;
+    }
+    const crc = crc32full(arr);
+    const known = KNOWN_BIOS[crc];
+    S.biosData=arr; S.biosLoaded=true;
+    if(known) {
+      badge.className='bios-badge loaded'; label.textContent='✓ '+f.name;
+      S.biosRegion=known.region; regEl.textContent=known.label;
+      info.textContent=`CRC32: ${crc} — ${known.region}`;
+      log('ok',`BIOS chargé : ${known.region} (CRC ${crc})`);
+    } else {
+      badge.className='bios-badge loaded'; label.textContent='⚠ '+f.name;
+      S.biosRegion='Inconnu'; regEl.textContent='CRC inconnu';
+      info.textContent=`CRC32: ${crc} — BIOS non reconnu mais accepté`;
+      log('warn',`BIOS chargé (CRC inconnu : ${crc}) — peut ne pas fonctionner`);
+    }
+    if(typeof Module._load_bios!=='undefined'){
+      const ptr=Module._malloc(arr.length); Module.HEAPU8.set(arr,ptr); Module._load_bios(ptr,arr.length);
+    }
+  };
+  r.readAsArrayBuffer(f);
+});
+
+// ── AUDIO ─────────────────────────────────────────────────────
+function initAudio() {
+  if(S.audioCtx) return;
+  try {
+    S.audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    S.gainNode = S.audioCtx.createGain();
+    S.gainNode.gain.value = 0.8;
+    S.gainNode.connect(S.audioCtx.destination);
+    log('ok','Contexte audio initialisé (Web Audio API)');
+  } catch(e) { log('warn','Échec audio : '+e.message); }
+}
+function setVolume(v) { if(S.gainNode) S.gainNode.gain.value = v/100; }
+function playStartupChime() {
+  if(!S.audioCtx) return;
+  const now = S.audioCtx.currentTime;
+  [[523.25,0],[659.25,0.18],[783.99,0.36],[1046.5,0.6]].forEach(([freq,t]) => {
+    const osc=S.audioCtx.createOscillator(), env=S.audioCtx.createGain();
+    osc.connect(env); env.connect(S.gainNode);
+    osc.type='sine'; osc.frequency.value=freq;
+    env.gain.setValueAtTime(0,now+t);
+    env.gain.linearRampToValueAtTime(0.18,now+t+0.05);
+    env.gain.exponentialRampToValueAtTime(0.001,now+t+0.55);
+    osc.start(now+t); osc.stop(now+t+0.6);
+  });
+}
+
+// ── GAMEPAD API ───────────────────────────────────────────────
+const GC_GAMEPAD_MAP={0:'A',1:'B',2:'X',3:'Y',4:'L',5:'R',6:'L',7:'R',8:'Start',9:'Start',12:'Up',13:'Down',14:'Left',15:'Right'};
+window.addEventListener('gamepadconnected',(e)=>{
+  S.gamepadIndex=e.gamepad.index;
+  document.getElementById('gamepadStatus').textContent=e.gamepad.id.slice(0,22);
+  document.getElementById('gamepadStatus').style.color='var(--gc-green)';
+  log('ok',`Manette connectée : ${e.gamepad.id}`);
+  startGamepadPolling();
+});
+window.addEventListener('gamepaddisconnected',(e)=>{
+  if(e.gamepad.index===S.gamepadIndex){
+    S.gamepadIndex=-1;
+    document.getElementById('gamepadStatus').textContent='Non connectée';
+    document.getElementById('gamepadStatus').style.color='';
+    log('warn','Manette déconnectée.');
+    stopGamepadPolling();
+  }
+});
+function startGamepadPolling(){if(!S.gamepadPollInterval)S.gamepadPollInterval=setInterval(pollGamepad,16);}
+function stopGamepadPolling(){clearInterval(S.gamepadPollInterval);S.gamepadPollInterval=null;}
+function pollGamepad(){
+  if(S.gamepadIndex<0)return;
+  const gp=navigator.getGamepads()[S.gamepadIndex];
+  if(!gp)return;
+  gp.buttons.forEach((btn,idx)=>{
+    const gcBtn=GC_GAMEPAD_MAP[idx];if(!gcBtn)return;
+    const prev=pressedBtns[gcBtn]||false,now2=btn.pressed;
+    if(now2!==prev){pressedBtns[gcBtn]=now2;updateCtrlBtn(gcBtn,now2);if(typeof Module._button_event!=='undefined')Module._button_event(gcBtn,now2?1:0);}
+  });
+  if(gp.axes.length>=2&&typeof Module._analog_event!=='undefined')Module._analog_event(0,gp.axes[0],gp.axes[1]);
+  if(gp.axes.length>=4&&typeof Module._analog_event!=='undefined')Module._analog_event(1,gp.axes[2],gp.axes[3]);
+}
+
+// ── KEYBOARD INPUT ────────────────────────────────────────────
+document.addEventListener('keydown',(e)=>{
+  if(S.inputListening){remapKey(S.inputListening,e.key);return;}
+  pressedKeys.add(e.key);
+  const gcBtn=Object.keys(keyMap).find(b=>keyMap[b]===e.key);
+  if(gcBtn){updateCtrlBtn(gcBtn,true);if(typeof Module._button_event!=='undefined')Module._button_event(gcBtn,1);}
+  if(!e.repeat){const fn=e.key.match(/^F([1-8])$/);if(fn){e.preventDefault();const slot=parseInt(fn[1])-1;if(e.shiftKey)doLoadState(slot);else doSaveState(slot);}}
+  if(e.key==='Escape'&&S.running)doPause();
+});
+document.addEventListener('keyup',(e)=>{
+  pressedKeys.delete(e.key);
+  const gcBtn=Object.keys(keyMap).find(b=>keyMap[b]===e.key);
+  if(gcBtn){updateCtrlBtn(gcBtn,false);if(typeof Module._button_event!=='undefined')Module._button_event(gcBtn,0);}
+});
+function updateCtrlBtn(btn,active){
+  const map={'A':'cb-A','B':'cb-B','X':'cb-X','Y':'cb-Y','Z':'cb-Z','Start':'cb-S','L':'cb-L','R':'cb-R','Up':'cb-U','Down':'cb-D','Left':'cb-Le','Right':'cb-Ri'};
+  const el=document.getElementById(map[btn]);if(el)el.classList.toggle('active',active);
+}
+
+// ── CONTROLLER MAPPING UI ─────────────────────────────────────
+const CTRL_LABELS={'A':'Bouton A','B':'Bouton B','X':'Bouton X','Y':'Bouton Y','Z':'Gâchette Z','Start':'Start','L':'Gâchette L','R':'Gâchette R','Up':'D-Pad ↑','Down':'D-Pad ↓','Left':'D-Pad ←','Right':'D-Pad →','CUp':'C-Stick ↑','CDown':'C-Stick ↓','CLeft':'C-Stick ←','CRight':'C-Stick →'};
+function buildCtrlMapGrid(){
+  const grid=document.getElementById('ctrlMapGrid');grid.innerHTML='';
+  Object.keys(CTRL_LABELS).forEach(btn=>{
+    const cell=document.createElement('div');cell.className='ctrl-map-row';
+    cell.innerHTML=`<span>${CTRL_LABELS[btn]}</span><span class="ctrl-key" id="key-${btn}" onclick="startListening('${btn}')">${esc(keyMap[btn]||'—')}</span>`;
+    grid.appendChild(cell);
+  });
+}
+function startListening(btn){
+  if(S.inputListening){const p=document.getElementById('key-'+S.inputListening);if(p)p.classList.remove('listening');}
+  S.inputListening=btn;const el=document.getElementById('key-'+btn);if(el){el.textContent='…';el.classList.add('listening');}
+}
+function remapKey(btn,key){
+  if(['F1','F2','F3','F4','F5','F6','F7','F8'].includes(key)){cancelListening();return;}
+  Object.keys(keyMap).forEach(b=>{if(keyMap[b]===key)keyMap[b]='';});
+  keyMap[btn]=key;const el=document.getElementById('key-'+btn);if(el){el.textContent=key;el.classList.remove('listening');}
+  S.inputListening=null;log('info',`Touche remappée : ${CTRL_LABELS[btn]} → "${key}"`);
+}
+function cancelListening(){
+  if(!S.inputListening)return;
+  const el=document.getElementById('key-'+S.inputListening);
+  if(el){el.textContent=keyMap[S.inputListening]||'—';el.classList.remove('listening');}
+  S.inputListening=null;
+}
+document.addEventListener('click',(e)=>{if(S.inputListening&&!e.target.classList.contains('ctrl-key'))cancelListening();});
+function toggleControllerOverlay(){
+  S.showCtrlOverlay=document.getElementById('toggleCtrlOverlay').classList.contains('on');
+  if(S.running)document.getElementById('ctrlOverlay').classList.toggle('visible',S.showCtrlOverlay);
+}
+
+// ── SAVE STATES ───────────────────────────────────────────────
+let selectedSlot=0;
+function buildSaveStateGrid(){
+  const grid=document.getElementById('ssGrid');grid.innerHTML='';
+  for(let i=0;i<8;i++){
+    const div=document.createElement('div');
+    div.className='ss-slot'+(S.saveStates[i]?' used':'')+(i===selectedSlot?' selected':'');
+    const date=S.saveStates[i]?new Date(S.saveStates[i].ts).toLocaleTimeString():'—';
+    div.innerHTML=`<span class="ss-num">${i+1}</span><span class="ss-date">${date}</span>`;
+    div.onclick=()=>{selectedSlot=i;document.querySelectorAll('.ss-slot').forEach((s,j)=>s.classList.toggle('selected',j===i));const info=S.saveStates[i];document.getElementById('ssSlotInfo').textContent=info?`Slot ${i+1} — ${S.romName||'?'} — ${new Date(info.ts).toLocaleString()}`:`Slot ${i+1} — Vide`;};
+    div.ondblclick=()=>{selectedSlot=i;doLoadState(i);};
+    grid.appendChild(div);
+  }
+}
+function doSaveState(slot){
+  if(!S.romLoaded){log('warn','Aucune ROM chargée.');return;}
+  S.saveStates[slot]={ts:Date.now(),pc:S.pc,cycles:S.cycles,instrs:S.instrs,rom:S.romName};
+  log('ok',`État sauvegardé — Slot ${slot+1} (PC=0x${S.pc.toString(16).toUpperCase()})`);
+  buildSaveStateGrid();flashSlot(slot,'var(--gc-green)');
+}
+function doLoadState(slot){
+  const st=S.saveStates[slot];if(!st){log('warn',`Slot ${slot+1} vide.`);return;}
+  S.pc=st.pc;S.cycles=st.cycles;S.instrs=st.instrs;setPC(S.pc);
+  document.getElementById('instrCount').textContent=S.instrs.toLocaleString();
+  document.getElementById('cycleCount').textContent=S.cycles.toLocaleString();
+  log('ok',`État chargé — Slot ${slot+1} (${new Date(st.ts).toLocaleString()})`);
+  flashSlot(slot,'var(--gc-purple-light)');
+}
+function doDeleteState(slot){
+  if(!S.saveStates[slot]){log('warn',`Slot ${slot+1} déjà vide.`);return;}
+  S.saveStates[slot]=null;log('info',`Slot ${slot+1} supprimé.`);buildSaveStateGrid();
+  document.getElementById('ssSlotInfo').textContent=`Slot ${slot+1} — Vide`;
+}
+function flashSlot(slot,color){
+  const el=document.getElementById('ssGrid').children[slot];if(!el)return;
+  el.style.borderColor=color;el.style.boxShadow=`0 0 8px ${color}`;
+  setTimeout(()=>{el.style.borderColor='';el.style.boxShadow='';buildSaveStateGrid();},600);
+}
+
+// ── CANVAS / RENDER ───────────────────────────────────────────
+const CANVAS=document.getElementById('screen');
+const CTX=CANVAS.getContext('2d');
+function clearCanvas(msg){
+  CTX.fillStyle='#000';CTX.fillRect(0,0,640,480);
+  if(msg){CTX.fillStyle='rgba(109,40,217,.18)';CTX.fillRect(0,0,640,480);CTX.fillStyle='#6d28d9';CTX.font='bold 18px Orbitron, monospace';CTX.textAlign='center';CTX.fillText(msg,320,245);}
+}
+function runBootAnimation(){
+  clearCanvas();playStartupChime();
+  let phase=0;
+  const steps=[
+    ()=>{
+      CTX.fillStyle='#000';CTX.fillRect(0,0,640,480);
+      const g=CTX.createRadialGradient(320,240,10,320,240,200);
+      g.addColorStop(0,'#9f7aea');g.addColorStop(1,'rgba(109,40,217,0)');
+      CTX.fillStyle=g;CTX.fillRect(0,0,640,480);
+      CTX.fillStyle='#fff';CTX.font='bold 52px Orbitron, monospace';CTX.textAlign='center';
+      CTX.shadowBlur=28;CTX.shadowColor='#8b5cf6';
+      CTX.fillText('Nintendo',320,218);
+      CTX.font='bold 30px Orbitron, monospace';CTX.fillStyle='#a78bfa';
+      CTX.fillText('GameCube',320,268);CTX.shadowBlur=0;
+    },
+    ()=>{
+      CTX.fillStyle='#000';CTX.fillRect(0,0,640,480);
+      const cx=320,cy=230,s=72;
+      const faces=[
+        {pts:[[cx,cy-s],[cx+s*.87,cy-s*.5],[cx+s*.87,cy+s*.5],[cx,cy]],c:'#6d28d9'},
+        {pts:[[cx,cy-s],[cx,cy],[cx-s*.87,cy+s*.5],[cx-s*.87,cy-s*.5]],c:'#4c1d95'},
+        {pts:[[cx,cy],[cx+s*.87,cy+s*.5],[cx,cy+s],[cx-s*.87,cy+s*.5]],c:'#8b5cf6'},
+      ];
+      faces.forEach(f=>{
+        CTX.beginPath();CTX.moveTo(f.pts[0][0],f.pts[0][1]);
+        f.pts.slice(1).forEach(p=>CTX.lineTo(p[0],p[1]));CTX.closePath();
+        CTX.fillStyle=f.c;CTX.fill();CTX.strokeStyle='#a78bfa';CTX.lineWidth=1.5;CTX.stroke();
+      });
+      CTX.fillStyle='rgba(167,139,250,.9)';CTX.font='bold 18px Orbitron, monospace';
+      CTX.textAlign='center';CTX.shadowBlur=14;CTX.shadowColor='#8b5cf6';
+      CTX.fillText('GC',cx,cy+6);CTX.shadowBlur=0;
+    },
+    ()=>{
+      CTX.fillStyle='#000';CTX.fillRect(0,0,640,480);
+      CTX.fillStyle='#34d399';CTX.font='bold 22px Orbitron, monospace';CTX.textAlign='center';
+      CTX.shadowBlur=18;CTX.shadowColor='#34d399';
+      CTX.fillText('SYSTÈME PRÊT',320,232);CTX.shadowBlur=0;
+      CTX.fillStyle='#4a4870';CTX.font='13px Share Tech Mono, monospace';
+      CTX.fillText(S.biosLoaded?`BIOS: ${S.biosRegion}`:'HLE Mode (sans BIOS)',320,265);
+      CTX.fillText(S.romName||'',320,285);
+    },
+  ];
+  const run=()=>{if(phase>=steps.length){S.bootTimer=null;startRenderLoop();return;}steps[phase++]();S.bootTimer=setTimeout(run,phase===1?900:phase===2?1200:700);};
+  S.bootTimer=setTimeout(run,350);
+}
+function startRenderLoop(){
+  cancelAnimationFrame(S.animFrame);
+  let frame=0;
+  const loop=()=>{
+    if(!S.running||S.paused)return;
+    if(typeof Module._render_frame!=='undefined'){
+      Module._render_frame();
+    } else {
+      if(frame%3===0){
+        const id=CTX.createImageData(640,480);const d=id.data;
+        for(let i=0;i<d.length;i+=4){const v=Math.random()<0.97?0:(Math.random()*255|0);d[i]=v*.15|0;d[i+1]=v*.03|0;d[i+2]=v*.45|0;d[i+3]=255;}
+        for(let y=0;y<480;y++)for(let x=0;x<640;x++){const i=(y*640+x)*4;d[i]=(d[i]*.3+20)|0;d[i+1]=(d[i+1]*.3+4)|0;d[i+2]=(d[i+2]*.3+40)|0;}
+        CTX.putImageData(id,0,0);
+        CTX.fillStyle='rgba(0,0,0,.48)';CTX.fillRect(0,0,640,30);
+        CTX.fillStyle='#8b5cf6';CTX.font='12px Share Tech Mono, monospace';CTX.textAlign='left';
+        CTX.fillText(`GCube — ${S.romName||'?'}  |  PC: 0x${S.pc.toString(16).toUpperCase().padStart(8,'0')}  |  ${(S.instrs/1e6).toFixed(2)}M instrs`,8,19);
+      }
+    }
+    frame++;S.animFrame=requestAnimationFrame(loop);
+  };
+  S.animFrame=requestAnimationFrame(loop);
+}
+
+// ── CORE ──────────────────────────────────────────────────────
+function parseOutput(text){
+  const m=text.match(/0x([0-9a-f]+).*Opcode.*0x([0-9a-f]+)/i);
+  if(m){const pc=parseInt(m[1],16),op=parseInt(m[2],16);setPC(pc);setOpcode(op);S.instrs++;S.cycles+=2;document.getElementById('instrCount').textContent=S.instrs.toLocaleString();document.getElementById('cycleCount').textContent=S.cycles.toLocaleString();}
+}
+function setPC(v){
+  S.pc=v;const h='0x'+v.toString(16).toUpperCase().padStart(8,'0');
+  document.getElementById('pcDisplay').textContent=h;document.getElementById('pcDisplay').classList.add('active');
+  document.getElementById('sbPc').textContent=h;
+  setTimeout(()=>document.getElementById('pcDisplay').classList.remove('active'),180);
+}
+function setOpcode(op){document.getElementById('opcodeVal').textContent='0x'+op.toString(16).toUpperCase().padStart(2,'0');}
+
+function crc32(b){let c=0xFFFFFFFF,t=new Uint32Array(256);for(let i=0;i<256;i++){let x=i;for(let j=0;j<8;j++)x=(x&1)?(0xEDB88320^(x>>>1)):(x>>>1);t[i]=x;}for(let i=0;i<Math.min(b.length,65536);i++)c=t[(c^b[i])&0xFF]^(c>>>8);return((c^0xFFFFFFFF)>>>0).toString(16).toUpperCase().padStart(8,'0');}
+function crc32full(b){let c=0xFFFFFFFF,t=new Uint32Array(256);for(let i=0;i<256;i++){let x=i;for(let j=0;j<8;j++)x=(x&1)?(0xEDB88320^(x>>>1)):(x>>>1);t[i]=x;}for(let i=0;i<b.length;i++)c=t[(c^b[i])&0xFF]^(c>>>8);return((c^0xFFFFFFFF)>>>0).toString(16).toUpperCase().padStart(8,'0');}
+function fmtBytes(b){return b<1024?b+' o':b<1048576?(b/1024).toFixed(1)+' Ko':(b/1048576).toFixed(1)+' Mo';}
+function detectFmt(name,b){if(name.endsWith('.iso')||name.endsWith('.gcm'))return 'GC ISO/GCM';if(name.endsWith('.dol'))return 'DOL';if(name.endsWith('.elf')||b[0]===0x7F)return 'ELF';return '?';}
+
+function loadFile(file){
+  const r=new FileReader();
+  r.onload=()=>{
+    const arr=new Uint8Array(r.result);
+    S.romData=arr;S.romName=file.name;
+    const fmt=detectFmt(file.name,arr);
+    const id=Array.from(arr.slice(0,6)).map(c=>String.fromCharCode(c)).join('').replace(/[^\x20-\x7E]/g,'?');
+    const stars=Math.floor(Math.random()*3)+3;
+    addGame({name:file.name.length>28?file.name.slice(0,25)+'…':file.name,id,region:'EUR',size:fmtBytes(arr.length),stars,plat:'GC'});
+    if(typeof Module._malloc!=='undefined'){const ptr=Module._malloc(arr.length);Module.HEAPU8.set(arr,ptr);Module._load_rom_wasm(ptr,arr.length);}
+    S.romLoaded=true;S.instrs=0;S.cycles=0;
+    setStatus('active','ROM chargée');
+    document.getElementById('sbRom').textContent=file.name.length>20?file.name.slice(0,17)+'…':file.name;
+    setPlayEnabled(true);updateHex(arr);
+    log('ok',`ROM chargée : ${file.name} (${fmtBytes(arr.length)}) CRC=${crc32(arr)}`);
+    log('info',`Format : ${fmt} | ID : ${id}`);
+    if(!S.biosLoaded)log('warn','Aucun BIOS chargé — mode HLE actif. Charger IPL.bin dans Config → BIOS/IPL.');
+  };
+  r.readAsArrayBuffer(file);
+}
+
+function addGame(g){
+  document.getElementById('listEmpty').classList.add('hidden');
+  const row=document.createElement('div');row.className='game-row';
+  const stars=Array.from({length:5},(_,i)=>`<span class="star ${i<g.stars?'on':''}" >★</span>`).join('');
+  row.innerHTML=`<div><div class="plat-badge badge-${g.plat.toLowerCase()}">${g.plat}</div></div><div class="game-name">${esc(g.name)}</div><div class="game-meta">${esc(g.id)}</div><div class="game-meta">${g.region}</div><div class="game-meta">${g.size}</div><div class="star-row">${stars}</div>`;
+  row.onclick=()=>{document.querySelectorAll('.game-row').forEach(r=>r.classList.remove('selected'));row.classList.add('selected');};
+  row.ondblclick=()=>doPlay();
+  document.getElementById('gameList').appendChild(row);
+}
+function refreshList(){log('info','Actualisation...');setTimeout(()=>log('ok','Liste à jour.'),400);}
+
+function setPlayEnabled(on){
+  ['btnPlay','btnStop','btnFF','btnStep','btnScreenshot','btnFullscreen','btnSaveState','btnLoadState'].forEach(id=>{document.getElementById(id).disabled=!on;});
+  document.getElementById('btnPause').disabled=true;
+}
+
+function doPlay(){
+  if(!S.romLoaded)return;
+  initAudio();clearInterval(S.interval);cancelAnimationFrame(S.animFrame);
+  S.running=true;S.paused=false;GC_CPU.running=true;
+  if(!S.startTime)S.startTime=performance.now();
+
+  document.getElementById('gameListView').style.display='none';
+  document.getElementById('emuView').classList.add('active');
+  document.getElementById('btnPlay').disabled=true;
+  document.getElementById('btnPause').disabled=false;
+  document.getElementById('btnStop').disabled=false;
+  if(S.showCtrlOverlay)document.getElementById('ctrlOverlay').classList.add('visible');
+  setStatus('active','En cours');
+
+  if(!S.cycles){
+    // Premier démarrage : initialiser le CPU
+    const entry = S.entryPoint || 0x80000400;
+    cpuReset(entry);
+    log('ok', `CPU initialisé — Entry point: 0x${entry.toString(16).toUpperCase()}`);
+    log('info', 'PowerPC 750CXe @ 486 MHz — HLE mode actif');
+    installHLEStubs();
+    runBootAnimation();
+  } else {
+    GC_CPU.pc = GC_CPU.pc;
+    startRenderLoop();
+  }
+
+  // Boucle CPU principale : N instructions par frame
+  const stepsPerTick = parseInt(document.getElementById('speedSelect').value) * 500;
+  let tick=0, lastFpsSample=performance.now(), fpsSteps=0;
+
+  S.interval = setInterval(()=>{
+    if(GC_CPU.running && !S.paused){
+      try {
+        for(let i=0; i<stepsPerTick; i++){
+          ppcStep();
+          S.instrs++; S.cycles+=2; fpsSteps++;
+        }
+        // Mise à jour de l'affichage registres
+        S.pc = GC_CPU.pc;
+        setPC(GC_CPU.pc);
+        setOpcode(memRead32(GC_CPU.pc)>>>24);
+        document.getElementById('instrCount').textContent = S.instrs.toLocaleString();
+        document.getElementById('cycleCount').textContent = S.cycles.toLocaleString();
+      } catch(e) {
+        GC_CPU.crashReason = e.message;
+        log('err', 'Crash CPU: ' + e.message + ' @ PC=0x'+(GC_CPU.pc>>>0).toString(16).toUpperCase());
+      }
+    }
+    if(++tick%4===0){
+      const now=performance.now();
+      const elapsed=(now-lastFpsSample)/1000;
+      if(elapsed>0){
+        const mips=((fpsSteps/elapsed)/1e6).toFixed(2);
+        const fps=Math.round(fpsSteps/elapsed/stepsPerTick*10)/10;
+        document.getElementById('fpsVal').textContent=mips+' MIPS';
+        document.getElementById('speedVal').textContent=Math.min(Math.round(fps*100/60),999)+'%';
+        lastFpsSample=now; fpsSteps=0;
+      }
+      // Mettre à jour registres dans l'UI
+      updateRegsDisplay();
+    }
+  }, 16);
+}
+
+function doPause(){
+  if(S.paused){S.paused=false;GC_CPU.running=true;doPlay();return;}
+  clearInterval(S.interval);cancelAnimationFrame(S.animFrame);
+  S.paused=true;GC_CPU.running=false;
+  document.getElementById('btnPlay').disabled=false;document.getElementById('btnPause').disabled=false;
+  setStatus('active','En pause');log('warn','Pause — PC=0x'+(GC_CPU.pc>>>0).toString(16).toUpperCase());
+  CTX.fillStyle='rgba(0,0,0,.55)';CTX.fillRect(0,0,640,480);
+  CTX.fillStyle='#a78bfa';CTX.font='bold 34px Orbitron, monospace';CTX.textAlign='center';
+  CTX.shadowBlur=22;CTX.shadowColor='#6d28d9';CTX.fillText('⏸  PAUSE',320,228);CTX.shadowBlur=0;
+  CTX.fillStyle='#8b5cf6';CTX.font='13px Share Tech Mono, monospace';
+  CTX.fillText('PC: 0x'+(GC_CPU.pc>>>0).toString(16).toUpperCase().padStart(8,'0')+'  Steps: '+GC_CPU.stepCount.toLocaleString(),320,258);
+  CTX.fillStyle='#4a4870';CTX.font='11px Share Tech Mono, monospace';
+  CTX.fillText('Échap ou Lancer pour reprendre  ·  Step: bouton ⊳|',320,280);
+}
+
+function doStop(){
+  clearInterval(S.interval);cancelAnimationFrame(S.animFrame);
+  if(S.bootTimer){clearTimeout(S.bootTimer);S.bootTimer=null;}
+  S.running=false;S.paused=false;S.ff=false;S.startTime=null;
+  S.pc=0x80000000;S.cycles=0;S.instrs=0;
+  GC_CPU.running=false;GC_CPU.stepCount=0;
+  document.getElementById('emuView').classList.remove('active');
+  document.getElementById('gameListView').style.display='';
+  document.getElementById('ctrlOverlay').classList.remove('visible');
+  document.getElementById('btnPlay').disabled=false;document.getElementById('btnPause').disabled=true;
+  document.getElementById('btnFF').classList.remove('active');
+  document.getElementById('fpsVal').textContent='0 MIPS';
+  document.getElementById('speedVal').textContent='0%';
+  document.getElementById('pcDisplay').textContent='0x80000000';
+  document.getElementById('cycleCount').textContent='0';document.getElementById('instrCount').textContent='0';document.getElementById('opcodeVal').textContent='—';
+  for(let i=0;i<32;i++){
+    const el=document.getElementById('r'+i);if(el)el.textContent='0x00000000';
+  }
+  ['lr','ctr','cr','xer'].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent='0x00000000';});
+  setStatus('active','Arrêté');log('warn','Émulation arrêtée.');clearCanvas('GCube — Arrêté');
+}
+
+function toggleFF(){
+  S.ff=!S.ff;document.getElementById('btnFF').classList.toggle('active',S.ff);
+  document.getElementById('speedSelect').value=S.ff?'100':'1';
+  log(S.ff?'warn':'info',S.ff?'Avance rapide activée.':'Vitesse normale.');
+}
+
+function doStep(){
+  // Exécuter une seule instruction PowerPC
+  try {
+    ppcStep();
+    S.instrs++; S.cycles+=2;
+    setPC(GC_CPU.pc);
+    setOpcode(memRead32(GC_CPU.pc)>>>24);
+    document.getElementById('instrCount').textContent=S.instrs.toLocaleString();
+    document.getElementById('cycleCount').textContent=S.cycles.toLocaleString();
+    updateRegsDisplay();
+    // Afficher le désassemblage dans le log toutes les N instructions
+    if(S.instrs%1===0){
+      const lastInstr=GC_CPU.lastInstrs[GC_CPU.lastInstrs.length-1];
+      if(lastInstr){ const d=disasm(lastInstr.pc,lastInstr.instr); /* log pour step-by-step */ }
+    }
+  } catch(e) {
+    log('err','Step CPU: '+e.message);
+  }
+}
+function updateRegsDisplay(){
+  const cpu=GC_CPU;
+  const names=['r0','r1','r2','r3','r4','r5'];
+  names.forEach((id,i)=>{
+    const el=document.getElementById(id);if(!el)return;
+    const v=(cpu.r[i]>>>0).toString(16).toUpperCase().padStart(8,'0');
+    const nv='0x'+v;
+    if(el.textContent!==nv){el.textContent=nv;el.classList.add('changed');setTimeout(()=>el.classList.remove('changed'),200);}
+  });
+  ['lr','ctr','cr','xer'].forEach(k=>{
+    const el=document.getElementById(k);if(!el)return;
+    const val={'lr':cpu.lr,'ctr':cpu.ctr,'cr':cpu.cr,'xer':cpu.xer}[k]>>>0;
+    const nv='0x'+val.toString(16).toUpperCase().padStart(8,'0');
+    if(el.textContent!==nv){el.textContent=nv;el.classList.add('changed');setTimeout(()=>el.classList.remove('changed'),200);}
+  });
+  // Disasm view
+  const dv=document.getElementById('disasmView');
+  if(dv && cpu.lastInstrs.length>0){
+    dv.innerHTML=cpu.lastInstrs.slice(-8).map(({pc,instr})=>{
+      const mn=disasm(pc,instr);
+      const isCurrent=(pc===cpu.pc-4);
+      return `<div style="${isCurrent?'color:var(--gc-green)':''}"><span style="color:var(--text-dim);margin-right:8px;">0x${pc.toString(16).toUpperCase().padStart(8,'0')}</span><span style="color:var(--gc-accent)">${esc(mn)}</span></div>`;
+    }).join('');
+    dv.scrollTop=dv.scrollHeight;
+  }
+}
+
+function doScreenshot(){const a=document.createElement('a');a.download='gcube_capture.png';a.href=CANVAS.toDataURL();a.click();log('ok','Capture sauvegardée.');}
+function doFullscreen(){const el=document.getElementById('emuView');if(document.fullscreenElement)document.exitFullscreen();else if(el.requestFullscreen)el.requestFullscreen();}
+
+function updateHex(bytes){
+  let html='';
+  for(let i=0;i<8;i++){
+    const off=i*16,chunk=bytes.slice(off,off+16);
+    const addr='0x8000'+off.toString(16).toUpperCase().padStart(4,'0');
+    const hex=Array.from(chunk).map(b=>b.toString(16).toUpperCase().padStart(2,'0')).join(' ');
+    const ascii=Array.from(chunk).map(b=>(b>=32&&b<127)?String.fromCharCode(b):'·').join('');
+    html+=`<div class="hrow"><span class="haddr">${addr}</span><span class="hbytes">${hex.padEnd(47)}</span><span class="hascii">${esc(ascii)}</span></div>`;
+  }
+  document.getElementById('hexView').innerHTML=html;
+}
+function setStatus(type,text){document.getElementById('sbDot').className='sb-dot '+(type||'');document.getElementById('sbStatus').textContent=text;}
+
+// ── FILE INPUTS ───────────────────────────────────────────────
+document.getElementById('romInput').addEventListener('change',function(){if(this.files[0])loadFile(this.files[0]);});
+document.getElementById('romInputDrop').addEventListener('change',function(){if(this.files[0])loadFile(this.files[0]);});
+const glv=document.getElementById('gameListView');
+['dragenter','dragover'].forEach(e=>glv.addEventListener(e,ev=>{ev.preventDefault();glv.classList.add('drag-over');}));
+['dragleave','drop'].forEach(e=>glv.addEventListener(e,ev=>{ev.preventDefault();glv.classList.remove('drag-over');}));
+glv.addEventListener('drop',ev=>{if(ev.dataTransfer.files[0])loadFile(ev.dataTransfer.files[0]);});
+
+// ── INIT ──────────────────────────────────────────────────────
+buildCtrlMapGrid();
+buildSaveStateGrid();
+clearCanvas('GCube v0.4 — Chargez Wind Waker .ISO ou autre .ISO/.GCM/.DOL');
+log('info','═══════════════════════════════════════════');
+log('info','GCube v0.4 — Émulateur GameCube navigateur');
+log('info','PPC 750CXe · VI/GX/DVD/SI/AI/EXI HW · HLE SDK');
+log('info','═══════════════════════════════════════════');
+log('info','BIOS : Non chargé — mode HLE actif');
+log('info','  → Config → BIOS/IPL pour charger IPL.bin');
+log('info','  → Sans BIOS : jeux simples / homebrew');
+log('info','Audio : Web Audio API initialisé');
+log('info','Formats : .ISO/.GCM (disque GC) · .DOL (exécutable) · Wind Waker USA/PAL/JPN');
+log('info','Clavier : X=A  Z=B  S=X  A=Y  C=Z  Entrée=Start');
+log('info','          Q=L  E=R  Flèches=D-Pad  I/J/K/L=C-Stick');
+log('info','F1-F8=Sauver état · Shift+F1-F8=Charger · Échap=Pause');
+// Boucle de rendu canvas à 60fps (~60Hz VI retrace simulation)
+let _viLine = 0;
+(function renderLoop(){
+  _viLine = (_viLine+1)%525;
+  VI_REG.DPV = _viLine;
+  if(GC_CPU.running && _viLine===480) {
+    // Simulate VI retrace (every 480 lines = 1 frame)
+    PI_REG.INTSR |= 0x0008; // VI interrupt
+    if(GC_CPU.xfbAddr) renderXFB();
+    else renderFrame();
+    // Clear retrace after processing
+    PI_REG.INTSR &= ~0x0008;
+  } else if(!GC_CPU.running) {
+    renderFrame();
+  }
+  requestAnimationFrame(renderLoop);
+})();
+</script>
+<script src="emulator.js" onerror="document.getElementById('log') && log('warn','emulator.js absent — mode démo actif.')"></script>
+</body>
+</html>

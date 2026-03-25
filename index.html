@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GCube — Émulateur GameCube</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --gc-purple:       #6d28d9;
+    --gc-purple-light: #8b5cf6;
+    --gc-purple-dim:   #3b1f6e;
+    --gc-accent:       #a78bfa;
+    --gc-green:        #34d399;
+    --gc-red:          #f87171;
+    --gc-amber:        #fbbf24;
+    --gc-blue:         #60a5fa;
+    --bg-base:         #07070f;
+    --bg-panel:        #0e0e1a;
+    --bg-surface:      #141428;
+    --bg-raised:       #1a1a30;
+    --bg-toolbar:      #0a0a18;
+    --border:          rgba(109,40,217,.28);
+    --text-primary:    #e2e0f0;
+    --text-secondary:  #8b87b0;
+    --text-dim:        #4a4870;
+    --font-display:    'Orbitron', monospace;
+    --font-mono:       'Share Tech Mono', monospace;
+    --font-ui:         'DM Sans', sans-serif;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body {
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  body::before {
+    content:'';position:fixed;inset:0;pointer-events:none;z-index:999;
+    background: repeating-linear-gradient(to bottom,transparent,transparent 2px,rgba(0,0,0,.12) 2px,rgba(0,0,0,.12) 4px);
+  }
+
+  /* ── MENU BAR ── */
+  .menu-bar {
+    display: flex;
+    align-items: center;
+    height: 26px;
+    background: var(--bg-toolbar);
+    border-bottom: 1px solid var(--border);
+    padding: 0 8px;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+  .menu-item {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    padding: 2px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: background .12s, color .12s;
+    user-select: none;
+  }
+  .menu-item:hover { background: rgba(109,40,217,.2); color: var(--gc-accent); }
+
+  /* ── TOOLBAR ── */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    height: 52px;
+    background: var(--bg-toolbar);
+    border-bottom: 1px solid var(--border);
+    padding: 0 6px;
+    gap: 1px;
+    flex-shrink: 0;
+  }
+  .tb-sep { width:1px; height:32px; background:var(--border); margin:0 5px; flex-shrink:0; }
+  .tb-spacer { flex:1; }
+
+  .tb-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    width: 52px;
+    height: 44px;
+    border-radius: 5px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    color: var(--text-secondary);
+    transition: background .12s, color .12s;
+    flex-shrink: 0;
+    position: relative;
+  }
+  .tb-btn:hover { background: rgba(109,40,217,.18); color: var(--gc-accent); }
+  .tb-btn:active { transform: scale(.96); }
+  .tb-btn:disabled { opacity:.3; cursor:not-allowed; }
+  .tb-btn:disabled:hover { background:transparent; color:var(--text-secondary); transform:none; }
+  .tb-btn svg { width:22px; height:22px; flex-shrink:0; }
+  .tb-label { font-size:.54rem; font-family:var(--font-ui); line-height:1; }
+
+  .tb-btn.btn-play svg  { color: var(--gc-green); }
+  .tb-btn.btn-play:hover { background: rgba(52,211,153,.12); }
+  .tb-btn.btn-stop svg  { color: var(--gc-red); }
+  .tb-btn.btn-stop:hover { background: rgba(248,113,113,.1); }
+  .tb-btn.btn-ff svg    { color: var(--gc-amber); }
+  .tb-btn.btn-ff.active { background: rgba(251,191,36,.12); }
+  .tb-btn.btn-ff.active svg { color: var(--gc-amber); }
+
+  .tb-btn::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: -28px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: .58rem;
+    padding: 3px 8px;
+    border-radius: 3px;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .15s;
+    z-index: 200;
+  }
+  .tb-btn:hover::after { opacity: 1; }
+
+  .tb-readout {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    padding: 0 8px;
+    gap: 1px;
+  }
+  .tb-readout-val   { font-family:var(--font-mono); font-size:.8rem; color:var(--gc-accent); }
+  .tb-readout-label { font-family:var(--font-mono); font-size:.54rem; color:var(--text-dim); letter-spacing:.1em; }
+
+  /* ── BODY ── */
+  .body-area {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ── GAME LIST ── */
+  .game-list-view {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+  }
+  .game-list-view.drag-over { outline: 2px dashed var(--gc-purple-light); outline-offset: -4px; }
+
+  .col-header-row {
+    display: grid;
+    grid-template-columns: 34px 1fr 80px 72px 64px 84px;
+    padding: 5px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-surface);
+    font-family: var(--font-mono);
+    font-size: .6rem;
+    color: var(--text-dim);
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    flex-shrink: 0;
+    user-select: none;
+  }
+
+  .game-list { flex:1; overflow-y:auto; }
+  .game-list::-webkit-scrollbar { width:5px; }
+  .game-list::-webkit-scrollbar-thumb { background:var(--gc-purple-dim); border-radius:3px; }
+
+  .game-row {
+    display: grid;
+    grid-template-columns: 34px 1fr 80px 72px 64px 84px;
+    padding: 7px 12px;
+    border-bottom: 1px solid rgba(109,40,217,.1);
+    align-items: center;
+    cursor: pointer;
+    transition: background .1s;
+    font-size: .8rem;
+  }
+  .game-row:hover  { background: rgba(109,40,217,.1); }
+  .game-row.selected { background: rgba(109,40,217,.2); border-left: 2px solid var(--gc-purple-light); }
+  .game-row.selected .game-name { color: var(--gc-accent); }
+
+  .plat-badge {
+    width: 24px; height: 24px;
+    border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-mono); font-size:.5rem; font-weight:700;
+  }
+  .badge-gc  { background:rgba(109,40,217,.3); color:var(--gc-accent); border:1px solid var(--gc-purple); }
+  .badge-wii { background:rgba(96,165,250,.2);  color:var(--gc-blue);   border:1px solid rgba(96,165,250,.35); }
+
+  .game-name { font-weight:500; color:var(--text-primary); }
+  .game-meta { font-family:var(--font-mono); font-size:.66rem; color:var(--text-dim); }
+  .star-row  { display:flex; gap:2px; font-size:10px; }
+  .star      { color:var(--text-dim); }
+  .star.on   { color:var(--gc-amber); }
+
+  /* empty state */
+  .list-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    pointer-events: none;
+  }
+  .list-empty.hidden { display:none; }
+  .list-empty svg { opacity:.2; }
+  .list-empty-text  { font-family:var(--font-mono); font-size:.75rem; color:var(--text-dim); letter-spacing:.15em; text-align:center; line-height:2.2; }
+  .list-empty-hint  { font-family:var(--font-mono); font-size:.65rem; color:var(--text-dim); opacity:.55; text-align:center; line-height:1.8; }
+  .drop-input-cover {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer;
+  }
+  .drop-input-cover input {
+    position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer;
+  }
+
+  /* ── EMU VIEW ── */
+  .emu-view {
+    flex: 1;
+    display: none;
+    flex-direction: column;
+    background: #000;
+  }
+  .emu-view.active { display: flex; }
+  .emu-canvas-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  canvas#screen {
+    max-width:100%; max-height:100%;
+    image-rendering: pixelated;
+    aspect-ratio: 4/3;
+    display: block;
+  }
+
+  /* ── RIGHT PANEL ── */
+  .right-panel {
+    width: 296px;
+    border-left: 1px solid var(--border);
+    background: var(--bg-panel);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+  .panel-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-toolbar);
+    flex-shrink: 0;
+  }
+  .panel-tab {
+    flex: 1;
+    padding: 7px 2px;
+    font-family: var(--font-mono);
+    font-size: .58rem;
+    letter-spacing: .07em;
+    text-align: center;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color .12s, border-color .12s;
+    user-select: none;
+    text-transform: uppercase;
+  }
+  .panel-tab:hover  { color: var(--text-secondary); }
+  .panel-tab.active { color: var(--gc-accent); border-bottom-color: var(--gc-purple-light); }
+
+  .panel-body { flex:1; overflow-y:auto; overflow-x:hidden; }
+  .panel-body::-webkit-scrollbar { width:4px; }
+  .panel-body::-webkit-scrollbar-thumb { background:var(--gc-purple-dim); border-radius:2px; }
+
+  .tab-pane { display:none; padding:10px 12px; }
+  .tab-pane.active { display:block; }
+
+  /* Registers */
+  .pc-display {
+    background: #000;
+    border: 1px solid var(--gc-purple);
+    border-radius: 5px;
+    padding: 9px 12px;
+    margin-bottom: 9px;
+  }
+  .pc-lbl { font-family:var(--font-mono); font-size:.56rem; color:var(--text-dim); letter-spacing:.18em; text-transform:uppercase; }
+  .pc-val {
+    font-family: var(--font-display);
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--gc-purple-light);
+    letter-spacing: .1em;
+    margin-top: 3px;
+    transition: color .12s;
+  }
+  .pc-val.active { color: var(--gc-green); }
+
+  .stats-row { display:grid; grid-template-columns:repeat(3,1fr); gap:4px; margin-bottom:9px; }
+  .stat-c {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 4px;
+    text-align: center;
+  }
+  .stat-v { font-family:var(--font-display); font-size:.82rem; font-weight:700; color:var(--gc-accent); display:block; }
+  .stat-l { font-family:var(--font-mono); font-size:.52rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:.08em; }
+
+  .reg-grid { display:grid; grid-template-columns:1fr 1fr; gap:3px; }
+  .reg-cell {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 4px 7px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .reg-n { font-family:var(--font-mono); font-size:.6rem; color:var(--text-dim); }
+  .reg-v { font-family:var(--font-mono); font-size:.62rem; color:var(--gc-accent); transition:color .1s; }
+  @keyframes regflash { 0%{color:#fff} 100%{color:var(--gc-accent)} }
+  .reg-v.changed { animation:regflash .3s forwards; }
+
+  /* Log */
+  .log-body {
+    font-family: var(--font-mono);
+    font-size: .67rem;
+    line-height: 1.8;
+    color: var(--text-secondary);
+  }
+  .ll { display:flex; gap:8px; }
+  .ll .ts  { color:var(--text-dim); min-width:52px; flex-shrink:0; }
+  .ll .msg { word-break:break-all; }
+  .ll.info .msg { color:var(--gc-accent); }
+  .ll.ok   .msg { color:var(--gc-green); }
+  .ll.warn .msg { color:var(--gc-amber); }
+  .ll.err  .msg { color:var(--gc-red); }
+
+  /* Memory */
+  .hex-view {
+    font-family:var(--font-mono); font-size:.58rem; line-height:1.9;
+    background:#000; border:1px solid var(--border); border-radius:4px;
+    padding:6px 8px; overflow-x:auto;
+  }
+  .hrow { display:flex; gap:8px; }
+  .haddr  { color:var(--text-dim); min-width:60px; }
+  .hbytes { color:var(--gc-accent); letter-spacing:.04em; }
+  .hascii { color:var(--text-dim); border-left:1px solid var(--border); padding-left:6px; }
+
+  /* Settings */
+  .sg-title {
+    font-family:var(--font-mono); font-size:.58rem; color:var(--text-dim);
+    text-transform:uppercase; letter-spacing:.15em;
+    border-bottom:1px solid var(--border); padding-bottom:4px; margin-bottom:5px; margin-top:10px;
+  }
+  .sg-title:first-child { margin-top:0; }
+  .s-row {
+    display:flex; justify-content:space-between; align-items:center;
+    padding:5px 0; font-size:.77rem; color:var(--text-secondary);
+    border-bottom:1px solid rgba(109,40,217,.08);
+  }
+  .s-row:last-child { border-bottom:none; }
+  .s-sel {
+    font-family:var(--font-mono); font-size:.65rem;
+    background:var(--bg-surface); border:1px solid var(--border);
+    color:var(--gc-accent); padding:3px 6px; border-radius:3px; cursor:pointer;
+  }
+  .toggle {
+    width:32px; height:16px; background:var(--bg-surface);
+    border:1px solid var(--border); border-radius:8px;
+    position:relative; cursor:pointer; transition:background .2s; flex-shrink:0;
+  }
+  .toggle.on { background:var(--gc-purple); border-color:var(--gc-purple-light); }
+  .knob {
+    position:absolute; width:10px; height:10px;
+    background:var(--text-dim); border-radius:50%;
+    top:2px; left:2px; transition:left .15s, background .15s;
+  }
+  .toggle.on .knob { left:18px; background:#fff; }
+
+  /* ── STATUS BAR ── */
+  .status-bar {
+    height: 22px;
+    background: var(--bg-toolbar);
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    gap: 14px;
+    flex-shrink: 0;
+  }
+  .sb-item { font-family:var(--font-mono); font-size:.6rem; color:var(--text-dim); display:flex; align-items:center; gap:5px; }
+  .sb-dot { width:6px; height:6px; border-radius:50%; background:var(--text-dim); transition:background .3s, box-shadow .3s; }
+  .sb-dot.active { background:var(--gc-green); box-shadow:0 0 6px var(--gc-green); animation:blink 1.5s ease-in-out infinite; }
+  .sb-dot.error  { background:var(--gc-red);   box-shadow:0 0 6px var(--gc-red); }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+  .sb-val { color:var(--text-secondary); }
+  .sb-sep { width:1px; height:12px; background:var(--border); }
+  .sb-right { margin-left:auto; }
+</style>
+</head>
+<body>
+
+<!-- MENU BAR -->
+<div class="menu-bar">
+  <span class="menu-item">Fichier</span>
+  <span class="menu-item">Émulation</span>
+  <span class="menu-item">Options</span>
+  <span class="menu-item">Outils</span>
+  <span class="menu-item">Vue</span>
+  <span class="menu-item">Aide</span>
+</div>
+
+<!-- TOOLBAR -->
+<div class="toolbar">
+
+  <button class="tb-btn" id="btnOpen" data-tip="Ouvrir ROM" onclick="document.getElementById('romInput').click()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+    </svg>
+    <span class="tb-label">Ouvrir</span>
+  </button>
+  <input type="file" id="romInput" accept=".iso,.gcm,.dol,.elf" style="display:none">
+
+  <button class="tb-btn" data-tip="Actualiser la liste" onclick="refreshList()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+      <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+    </svg>
+    <span class="tb-label">Actualiser</span>
+  </button>
+
+  <div class="tb-sep"></div>
+
+  <!-- Playback -->
+  <button class="tb-btn btn-play" id="btnPlay" data-tip="Lancer / Reprendre" disabled onclick="doPlay()">
+    <svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21" fill="currentColor"/></svg>
+    <span class="tb-label">Lancer</span>
+  </button>
+
+  <button class="tb-btn" id="btnPause" data-tip="Pause" disabled onclick="doPause()">
+    <svg viewBox="0 0 24 24">
+      <rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor"/>
+      <rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor"/>
+    </svg>
+    <span class="tb-label">Pause</span>
+  </button>
+
+  <button class="tb-btn btn-stop" id="btnStop" data-tip="Arrêter" disabled onclick="doStop()">
+    <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" fill="currentColor"/></svg>
+    <span class="tb-label">Arrêter</span>
+  </button>
+
+  <button class="tb-btn btn-ff" id="btnFF" data-tip="Avance rapide" disabled onclick="toggleFF()">
+    <svg viewBox="0 0 24 24">
+      <polygon points="3,5 12,12 3,19" fill="currentColor"/>
+      <polygon points="11,5 20,12 11,19" fill="currentColor"/>
+    </svg>
+    <span class="tb-label">Rapide</span>
+  </button>
+
+  <button class="tb-btn" id="btnStep" data-tip="Pas à pas" disabled onclick="doStep()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+      <polygon points="4,5 14,12 4,19" fill="currentColor" stroke="none"/>
+      <line x1="19" y1="5" x2="19" y2="19" stroke-width="2.5"/>
+    </svg>
+    <span class="tb-label">Step</span>
+  </button>
+
+  <div class="tb-sep"></div>
+
+  <button class="tb-btn" id="btnScreenshot" data-tip="Capture d'écran" disabled onclick="doScreenshot()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
+      <circle cx="12" cy="13" r="4"/>
+    </svg>
+    <span class="tb-label">Capture</span>
+  </button>
+
+  <button class="tb-btn" id="btnFullscreen" data-tip="Plein écran" disabled onclick="doFullscreen()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/>
+    </svg>
+    <span class="tb-label">Plein écran</span>
+  </button>
+
+  <div class="tb-sep"></div>
+
+  <button class="tb-btn" data-tip="Configuration générale" onclick="switchTab('settings')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.07 4.93l-1.41 1.41M6.34 17.66l-1.41 1.41M20 12h-2M6 12H4m15.07 7.07l-1.41-1.41M6.34 6.34L4.93 4.93M12 20v-2M12 6V4"/>
+    </svg>
+    <span class="tb-label">Config</span>
+  </button>
+
+  <button class="tb-btn" data-tip="Paramètres graphiques" onclick="switchTab('settings')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="2" y="3" width="20" height="14" rx="2"/>
+      <path d="M8 21h8M12 17v4"/>
+    </svg>
+    <span class="tb-label">Graphismes</span>
+  </button>
+
+  <button class="tb-btn" data-tip="Configurer les manettes" onclick="switchTab('settings')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="2" y="8" width="20" height="12" rx="4"/>
+      <path d="M7 12v4m-2-2h4M15 12h2m2 0h-2"/>
+    </svg>
+    <span class="tb-label">Manettes</span>
+  </button>
+
+  <div class="tb-spacer"></div>
+
+  <div class="tb-readout">
+    <span class="tb-readout-val" id="fpsVal">0 FPS</span>
+    <span class="tb-readout-label">RENDU</span>
+  </div>
+  <div class="tb-readout" style="padding-right:6px">
+    <span class="tb-readout-val" id="speedVal">0%</span>
+    <span class="tb-readout-label">VITESSE</span>
+  </div>
+</div>
+
+<!-- BODY -->
+<div class="body-area">
+
+  <!-- Game list view -->
+  <div class="game-list-view" id="gameListView">
+    <div class="col-header-row">
+      <div></div>
+      <div>Titre</div>
+      <div>ID Jeu</div>
+      <div>Région</div>
+      <div>Taille</div>
+      <div>Note</div>
+    </div>
+    <div class="game-list" id="gameList"></div>
+    <div class="list-empty" id="listEmpty">
+      <svg width="70" height="70" viewBox="0 0 70 70" fill="none">
+        <circle cx="35" cy="35" r="33" stroke="#6d28d9" stroke-width="1.5"/>
+        <circle cx="35" cy="35" r="21" stroke="#8b5cf6" stroke-width="1" fill="rgba(109,40,217,.08)"/>
+        <circle cx="35" cy="35" r="9"  fill="rgba(109,40,217,.2)"/>
+        <circle cx="35" cy="35" r="5"  fill="#6d28d9"/>
+      </svg>
+      <div class="list-empty-text">AUCUN JEU DANS LA BIBLIOTHÈQUE</div>
+      <div class="list-empty-hint">Cliquez sur « Ouvrir » dans la barre d'outils<br>ou glissez un fichier .ISO / .GCM ici</div>
+      <div class="drop-input-cover">
+        <input type="file" id="romInputDrop" accept=".iso,.gcm,.dol,.elf">
+      </div>
+    </div>
+  </div>
+
+  <!-- Emulation view -->
+  <div class="emu-view" id="emuView">
+    <div class="emu-canvas-wrap">
+      <canvas id="screen" width="640" height="480"></canvas>
+    </div>
+  </div>
+
+  <!-- Right panel -->
+  <div class="right-panel">
+    <div class="panel-tabs">
+      <div class="panel-tab active" onclick="switchTab('regs')">Registres</div>
+      <div class="panel-tab" onclick="switchTab('log')">Journal</div>
+      <div class="panel-tab" onclick="switchTab('mem')">Mémoire</div>
+      <div class="panel-tab" onclick="switchTab('settings')">Config</div>
+    </div>
+    <div class="panel-body">
+
+      <!-- REGISTERS -->
+      <div class="tab-pane active" id="pane-regs">
+        <div class="pc-display">
+          <div class="pc-lbl">Program Counter</div>
+          <div class="pc-val" id="pcDisplay">0x80000000</div>
+        </div>
+        <div class="stats-row">
+          <div class="stat-c"><span class="stat-v" id="cycleCount">0</span><span class="stat-l">Cycles</span></div>
+          <div class="stat-c"><span class="stat-v" id="opcodeVal">—</span><span class="stat-l">Opcode</span></div>
+          <div class="stat-c"><span class="stat-v" id="instrCount">0</span><span class="stat-l">Instrs</span></div>
+        </div>
+        <div class="reg-grid">
+          <div class="reg-cell"><span class="reg-n">r0</span><span class="reg-v" id="r0">0x00000000</span></div>
+          <div class="reg-cell"><span class="reg-n">r1 SP</span><span class="reg-v" id="r1">0x00000000</span></div>
+          <div class="reg-cell"><span class="reg-n">r2 TOC</span><span class="reg-v" id="r2">0x00000000</span></div>
+          <div class="reg-cell"><span class="reg-n">r3</span><span class="reg-v" id="r3">0x00000000</span></div>
+          <div class="reg-cell"><span class="reg-n">r4</span><span class="reg-v" id="r4">0x00000000</span></div>
+          <div class="reg-cell"><span class="reg-n">r5</span><span class="reg-v" id="r5">0x00000000</span></div>
+          <div class="reg-cell"><span class="reg-n">LR</span><span class="reg-v" id="lr">0x00000000</span></div>
+          <div class="reg-cell"><span class="reg-n">CTR</span><span class="reg-v" id="ctr">0x00000000</span></div>
+          <div class="reg-cell"><span class="reg-n">CR</span><span class="reg-v" id="cr">0x00000000</span></div>
+          <div class="reg-cell"><span class="reg-n">XER</span><span class="reg-v" id="xer">0x00000000</span></div>
+        </div>
+      </div>
+
+      <!-- LOG -->
+      <div class="tab-pane" id="pane-log">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <span style="font-family:var(--font-mono);font-size:.58rem;color:var(--text-dim);letter-spacing:.12em;text-transform:uppercase;">Console système</span>
+          <button onclick="clearLog()" style="font-family:var(--font-mono);font-size:.58rem;background:none;border:1px solid var(--border);color:var(--text-dim);padding:2px 8px;border-radius:3px;cursor:pointer;transition:color .12s;">Effacer</button>
+        </div>
+        <div class="log-body" id="log"></div>
+      </div>
+
+      <!-- MEMORY -->
+      <div class="tab-pane" id="pane-mem">
+        <p style="font-family:var(--font-mono);font-size:.58rem;color:var(--text-dim);letter-spacing:.1em;text-transform:uppercase;margin-bottom:7px;">MEM1 — 0x80000000</p>
+        <div class="hex-view" id="hexView">
+          <div style="color:var(--text-dim);text-align:center;padding:14px 0;font-size:.63rem;">— Aucune ROM chargée —</div>
+        </div>
+      </div>
+
+      <!-- SETTINGS -->
+      <div class="tab-pane" id="pane-settings">
+        <div class="sg-title">CPU</div>
+        <div class="s-row"><span>Backend</span><select class="s-sel"><option>Interpreter</option><option>JIT Recompiler</option></select></div>
+        <div class="s-row"><span>Vitesse max</span>
+          <select class="s-sel" id="speedSelect">
+            <option value="1">×1</option><option value="10">×10</option>
+            <option value="100">×100</option><option value="1000">×1k</option>
+          </select>
+        </div>
+        <div class="s-row"><span>Dual Core</span><div class="toggle" onclick="this.classList.toggle('on')"><div class="knob"></div></div></div>
+        <div class="s-row"><span>Idle Skipping</span><div class="toggle on" onclick="this.classList.toggle('on')"><div class="knob"></div></div></div>
+
+        <div class="sg-title">Graphismes</div>
+        <div class="s-row"><span>Backend</span><select class="s-sel"><option>Vulkan</option><option>OpenGL</option><option>D3D12</option></select></div>
+        <div class="s-row"><span>Résolution interne</span><select class="s-sel"><option>×1 (480p)</option><option>×2 (960p)</option><option>×3 (1440p)</option><option>×4 (2160p)</option></select></div>
+        <div class="s-row"><span>Widescreen hack</span><div class="toggle on" onclick="this.classList.toggle('on')"><div class="knob"></div></div></div>
+        <div class="s-row"><span>V-Sync</span><div class="toggle" onclick="this.classList.toggle('on')"><div class="knob"></div></div></div>
+        <div class="s-row"><span>Anti-aliasing</span><select class="s-sel"><option>Aucun</option><option>2×MSAA</option><option>4×MSAA</option></select></div>
+
+        <div class="sg-title">Audio</div>
+        <div class="s-row"><span>Backend</span><select class="s-sel"><option>Cubeb</option><option>OpenAL</option><option>PulseAudio</option></select></div>
+        <div class="s-row"><span>Latence</span><select class="s-sel"><option>20 ms</option><option>40 ms</option><option>80 ms</option></select></div>
+        <div class="s-row"><span>Étirement temporel</span><div class="toggle on" onclick="this.classList.toggle('on')"><div class="knob"></div></div></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- STATUS BAR -->
+<div class="status-bar">
+  <div class="sb-item"><div class="sb-dot" id="sbDot"></div><span class="sb-val" id="sbStatus">En attente</span></div>
+  <div class="sb-sep"></div>
+  <div class="sb-item">ROM : <span class="sb-val" id="sbRom">—</span></div>
+  <div class="sb-sep"></div>
+  <div class="sb-item">PC : <span class="sb-val" id="sbPc">0x80000000</span></div>
+  <div class="sb-item sb-right">GCube v0.1 — PowerPC 750CXe @ 486 MHz</div>
+</div>
+
+<script>
+const S = {
+  romLoaded:false, running:false, paused:false, ff:false,
+  pc:0x80000000, cycles:0, instrs:0,
+  interval:null, startTime:null, romName:'', romData:null, games:[],
+};
+
+var Module = {
+  onRuntimeInitialized: () => {
+    Module._init_emulator();
+    log('info','Wasm initialisé — PowerPC 750CXe @ 486 MHz');
+  },
+  print:   (t) => { log('', t); parseOutput(t); },
+  printErr:(t) => log('err', t),
+};
+
+function switchTab(name) {
+  const names = ['regs','log','mem','settings'];
+  document.querySelectorAll('.panel-tab').forEach((t,i) => t.classList.toggle('active', names[i]===name));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id==='pane-'+name));
+}
+
+let logN = 0;
+function log(type, msg) {
+  const el = document.getElementById('log');
+  const ts = new Date().toTimeString().slice(0,8);
+  const d = document.createElement('div');
+  d.className = 'll '+type;
+  d.innerHTML = `<span class="ts">${ts}</span><span class="msg">${esc(msg)}</span>`;
+  el.appendChild(d);
+  if(++logN > 600) el.removeChild(el.firstChild);
+  el.scrollTop = el.scrollHeight;
+}
+function clearLog() { document.getElementById('log').innerHTML=''; logN=0; }
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function parseOutput(text) {
+  const m = text.match(/0x([0-9a-f]+).*Opcode.*0x([0-9a-f]+)/i);
+  if(m) {
+    const pc=parseInt(m[1],16), op=parseInt(m[2],16);
+    setPC(pc); setOpcode(op);
+    S.instrs++; S.cycles+=2;
+    document.getElementById('instrCount').textContent = S.instrs.toLocaleString();
+    document.getElementById('cycleCount').textContent = S.cycles.toLocaleString();
+  }
+}
+
+function setPC(v) {
+  S.pc = v;
+  const h = '0x'+v.toString(16).toUpperCase().padStart(8,'0');
+  document.getElementById('pcDisplay').textContent = h;
+  document.getElementById('pcDisplay').classList.add('active');
+  document.getElementById('sbPc').textContent = h;
+  setTimeout(()=>document.getElementById('pcDisplay').classList.remove('active'), 180);
+}
+function setOpcode(op) {
+  document.getElementById('opcodeVal').textContent = '0x'+op.toString(16).toUpperCase().padStart(2,'0');
+}
+
+// ── CRC/utils ────────────────────────────────────────────
+function crc32(b) {
+  let c=0xFFFFFFFF, t=new Uint32Array(256);
+  for(let i=0;i<256;i++){let x=i;for(let j=0;j<8;j++)x=(x&1)?(0xEDB88320^(x>>>1)):(x>>>1);t[i]=x;}
+  for(let i=0;i<Math.min(b.length,65536);i++) c=t[(c^b[i])&0xFF]^(c>>>8);
+  return((c^0xFFFFFFFF)>>>0).toString(16).toUpperCase().padStart(8,'0');
+}
+function fmtBytes(b) {
+  return b<1024?b+' o':b<1048576?(b/1024).toFixed(1)+' Ko':(b/1048576).toFixed(1)+' Mo';
+}
+function detectFmt(name,b) {
+  if(name.endsWith('.iso')||name.endsWith('.gcm'))return 'GC ISO/GCM';
+  if(name.endsWith('.dol'))return 'DOL';
+  if(name.endsWith('.elf')||b[0]===0x7F)return 'ELF';
+  return '?';
+}
+
+function loadFile(file) {
+  const r = new FileReader();
+  r.onload = () => {
+    const arr = new Uint8Array(r.result);
+    S.romData = arr; S.romName = file.name;
+    const fmt = detectFmt(file.name, arr);
+    const id = Array.from(arr.slice(0,6)).map(c=>String.fromCharCode(c)).join('').replace(/[^\x20-\x7E]/g,'?');
+    const stars = Math.floor(Math.random()*3)+3;
+    addGame({ name:file.name.length>28?file.name.slice(0,25)+'…':file.name, id, region:'EUR', size:fmtBytes(arr.length), stars, plat:'GC' });
+
+    if(typeof Module._malloc !== 'undefined') {
+      const ptr = Module._malloc(arr.length);
+      Module.HEAPU8.set(arr, ptr);
+      Module._load_rom_wasm(ptr, arr.length);
+    }
+
+    S.romLoaded=true; S.instrs=0; S.cycles=0;
+    setStatus('active','ROM chargée');
+    document.getElementById('sbRom').textContent = file.name.length>20?file.name.slice(0,17)+'…':file.name;
+    setPlayEnabled(true);
+    updateHex(arr);
+    log('ok',`ROM chargée : ${file.name} (${fmtBytes(arr.length)}) CRC=${crc32(arr)}`);
+    log('info',`Format : ${fmt} | ID : ${id}`);
+  };
+  r.readAsArrayBuffer(file);
+}
+
+function addGame(g) {
+  document.getElementById('listEmpty').classList.add('hidden');
+  const row = document.createElement('div');
+  row.className = 'game-row';
+  const stars = Array.from({length:5},(_,i)=>`<span class="star ${i<g.stars?'on':''}" >★</span>`).join('');
+  row.innerHTML = `
+    <div><div class="plat-badge badge-${g.plat.toLowerCase()}">${g.plat}</div></div>
+    <div class="game-name">${esc(g.name)}</div>
+    <div class="game-meta">${esc(g.id)}</div>
+    <div class="game-meta">${g.region}</div>
+    <div class="game-meta">${g.size}</div>
+    <div class="star-row">${stars}</div>
+  `;
+  row.onclick = () => {
+    document.querySelectorAll('.game-row').forEach(r=>r.classList.remove('selected'));
+    row.classList.add('selected');
+  };
+  row.ondblclick = () => doPlay();
+  document.getElementById('gameList').appendChild(row);
+}
+
+function refreshList() {
+  log('info','Actualisation de la liste...');
+  setTimeout(()=>log('ok','Liste à jour.'), 400);
+}
+
+function setPlayEnabled(on) {
+  ['btnPlay','btnStop','btnFF','btnStep','btnScreenshot','btnFullscreen'].forEach(id=>{
+    document.getElementById(id).disabled = !on;
+  });
+  document.getElementById('btnPause').disabled = true;
+}
+
+function doPlay() {
+  if(!S.romLoaded) return;
+  clearInterval(S.interval);
+  S.running=true; S.paused=false;
+  if(!S.startTime) S.startTime = performance.now();
+
+  document.getElementById('gameListView').style.display = 'none';
+  document.getElementById('emuView').classList.add('active');
+  document.getElementById('btnPlay').disabled = true;
+  document.getElementById('btnPause').disabled = false;
+  document.getElementById('btnStop').disabled = false;
+  setStatus('active','En cours');
+  if(!S.cycles) log('ok','Émulation démarrée.');
+
+  const speed = parseInt(document.getElementById('speedSelect').value);
+  let tick=0;
+  S.interval = setInterval(() => {
+    for(let i=0;i<speed;i++) doStep();
+    if(++tick%30===0) {
+      const elapsed = (performance.now()-S.startTime)/1000;
+      const fps = Math.round(S.instrs/elapsed/60);
+      const pct = Math.min(Math.round(fps),200);
+      document.getElementById('fpsVal').textContent  = Math.round(fps)+' FPS';
+      document.getElementById('speedVal').textContent = pct+'%';
+    }
+  }, 16);
+}
+
+function doPause() {
+  if(S.paused) { S.paused=false; doPlay(); return; }
+  clearInterval(S.interval); S.paused=true;
+  document.getElementById('btnPlay').disabled = false;
+  document.getElementById('btnPause').disabled = false;
+  setStatus('active','En pause');
+  log('warn','Pause.');
+}
+
+function doStop() {
+  clearInterval(S.interval);
+  S.running=false; S.paused=false; S.ff=false; S.startTime=null;
+  S.pc=0x80000000; S.cycles=0; S.instrs=0;
+
+  document.getElementById('emuView').classList.remove('active');
+  document.getElementById('gameListView').style.display = '';
+  document.getElementById('btnPlay').disabled = false;
+  document.getElementById('btnPause').disabled = true;
+  document.getElementById('btnFF').classList.remove('active');
+  ['fpsVal','speedVal'].forEach(id=>{ document.getElementById(id).textContent = id==='fpsVal'?'0 FPS':'0%'; });
+  document.getElementById('pcDisplay').textContent = '0x80000000';
+  document.getElementById('cycleCount').textContent = '0';
+  document.getElementById('instrCount').textContent = '0';
+  document.getElementById('opcodeVal').textContent = '—';
+  setStatus('active','Arrêté');
+  log('warn','Émulation arrêtée.');
+  if(typeof Module._init_emulator !== 'undefined') Module._init_emulator();
+}
+
+function toggleFF() {
+  S.ff = !S.ff;
+  document.getElementById('btnFF').classList.toggle('active', S.ff);
+  document.getElementById('speedSelect').value = S.ff ? '100' : '1';
+  log(S.ff?'warn':'info', S.ff ? 'Avance rapide activée.' : 'Vitesse normale.');
+}
+
+function doStep() {
+  if(typeof Module._run_step !== 'undefined') {
+    Module._run_step();
+  } else {
+    const ops=[0x12,0x18,0x1F,0x0E,0x0F,0x10,0x07];
+    const op=ops[Math.floor(Math.random()*ops.length)];
+    S.pc = op===0x12 ? (0x80000000+(Math.random()*0x8000|0)) : S.pc+4;
+    setPC(S.pc); setOpcode(op);
+    S.instrs++; S.cycles+=2;
+    document.getElementById('instrCount').textContent = S.instrs.toLocaleString();
+    document.getElementById('cycleCount').textContent = S.cycles.toLocaleString();
+  }
+}
+
+function doScreenshot() {
+  const a = document.createElement('a');
+  a.download = 'gcube_capture.png';
+  a.href = document.getElementById('screen').toDataURL();
+  a.click();
+  log('ok','Capture sauvegardée.');
+}
+
+function doFullscreen() {
+  const el = document.getElementById('emuView');
+  if(el.requestFullscreen) el.requestFullscreen();
+}
+
+function updateHex(bytes) {
+  let html='';
+  for(let i=0;i<8;i++){
+    const off=i*16, chunk=bytes.slice(off,off+16);
+    const addr='0x8000'+off.toString(16).toUpperCase().padStart(4,'0');
+    const hex=Array.from(chunk).map(b=>b.toString(16).toUpperCase().padStart(2,'0')).join(' ');
+    const ascii=Array.from(chunk).map(b=>(b>=32&&b<127)?String.fromCharCode(b):'·').join('');
+    html+=`<div class="hrow"><span class="haddr">${addr}</span><span class="hbytes">${hex.padEnd(47)}</span><span class="hascii">${esc(ascii)}</span></div>`;
+  }
+  document.getElementById('hexView').innerHTML = html;
+}
+
+function setStatus(type, text) {
+  document.getElementById('sbDot').className = 'sb-dot '+(type||'');
+  document.getElementById('sbStatus').textContent = text;
+}
+
+// File inputs
+document.getElementById('romInput').addEventListener('change', function(){ if(this.files[0]) loadFile(this.files[0]); });
+document.getElementById('romInputDrop').addEventListener('change', function(){ if(this.files[0]) loadFile(this.files[0]); });
+
+const glv = document.getElementById('gameListView');
+['dragenter','dragover'].forEach(e => glv.addEventListener(e, ev=>{ev.preventDefault();glv.classList.add('drag-over');}));
+['dragleave','drop'].forEach(e => glv.addEventListener(e, ev=>{ev.preventDefault();glv.classList.remove('drag-over');}));
+glv.addEventListener('drop', ev=>{ if(ev.dataTransfer.files[0]) loadFile(ev.dataTransfer.files[0]); });
+
+log('info','GCube v0.1 — Initialisation en cours...');
+log('info','Chargement du module WebAssembly...');
+</script>
+<script src="emulator.js" onerror="document.getElementById('log') && log('warn','emulator.js absent — mode démo actif.')"></script>
+</body>
+</html>
